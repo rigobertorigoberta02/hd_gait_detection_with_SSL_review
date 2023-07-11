@@ -11,8 +11,10 @@ from torchvision import transforms
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
 import ipdb
+import wandb
 
 verbose = False
+wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
 
 
@@ -124,7 +126,7 @@ class EarlyStopping:
 
     def __init__(
             self,
-            patience=5,
+            patience=15,
             verbose=False,
             delta=0,
             path="checkpoint.pt",
@@ -160,7 +162,10 @@ class EarlyStopping:
     def __call__(self, val_loss, model):
 
         score = -val_loss
-
+        self.best_score = score
+        self.save_checkpoint(val_loss, model)  
+        self.counter += 1
+        return  
         if self.best_score is None:
             self.best_score = score
             self.save_checkpoint(val_loss, model)
@@ -191,7 +196,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(tag='v1.0.0', pretrained=False):
+def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2):
     """
     Load and return the Self Supervised Learning (SSL) model from pytorch hub.
 
@@ -222,7 +227,7 @@ def get_sslnet(tag='v1.0.0', pretrained=False):
         if verbose:
             print(f'Using local {repo_path}')
 
-    sslnet: nn.Module = torch.hub.load(repo_path, 'harnet10', trust_repo=True, source=source, class_num=2,
+    sslnet: nn.Module = torch.hub.load(repo_path, 'harnet10', trust_repo=True, source=source, class_num=num_classes,
                                        pretrained=pretrained, verbose=verbose)
     return sslnet
 
@@ -267,8 +272,8 @@ def predict(model, data_loader, device):
     )
 
 
-def train(model, train_loader, val_loader, device, class_weights=None, weights_path='weights.pt',
-          num_epoch=100, learning_rate=0.0001, patience=5):
+def train(model, train_loader, val_loader, device, wandb_flag, class_weights=None, weights_path='weights.pt',
+          num_epoch=50, learning_rate=0.0001, patience=25):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -292,10 +297,15 @@ def train(model, train_loader, val_loader, device, class_weights=None, weights_p
 
     if class_weights is not None:
         class_weights = torch.FloatTensor(class_weights).to(device)
-        loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+        loss_fn_base = nn.CrossEntropyLoss(weight=class_weights)
     else:
-        loss_fn = nn.CrossEntropyLoss()
-
+        loss_fn_base = nn.CrossEntropyLoss()
+    # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
+    # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
+    # loss = loss_gait+loss_chorea
+    #loss_fn = lambda x, y : loss_fn_base(get_gait(x),get_gait(y)) + \
+                                    #loss_fn_base(get_valid_chorea(y)*get_chorea(x),get_valid_chorea(y)*get_chorea(y))
+    loss_fn = loss_fn_base
     early_stopping = EarlyStopping(
         patience=patience, path=weights_path, verbose=verbose, trace_func=print
     )
@@ -304,16 +314,22 @@ def train(model, train_loader, val_loader, device, class_weights=None, weights_p
         model.train()
         train_losses = []
         train_acces = []
+        train_gait_acces = []
+        train_chorea_acces = []
         for i, (x, y, _) in enumerate(tqdm(train_loader, disable=not verbose)):
             x.requires_grad_(True)
             x = x.to(device, dtype=torch.float)
             true_y = y.to(device, dtype=torch.float)
-
+            true_y = true_y.squeeze(dim=1)
             optimizer.zero_grad()
             logits = model(x)
+            ipdb.set_trace()
             loss = loss_fn(logits, true_y)
+            
             loss.backward()
             optimizer.step()
+
+            train_acc_gait, train_acc_chorea = calc_gait_and_chorea_acc(true_y, logits)
 
             pred_y = torch.argmax(logits, dim=1)
             true_y = torch.argmax(true_y,dim=1)
@@ -322,18 +338,33 @@ def train(model, train_loader, val_loader, device, class_weights=None, weights_p
 
             train_losses.append(loss.cpu().detach())
             train_acces.append(train_acc.cpu().detach())
+            train_gait_acces.append(train_acc_gait.cpu().detach())
+            train_chorea_acces.append(train_acc_chorea.cpu().detach())
 
-        val_loss, val_acc = _validate_model(model, val_loader, device, loss_fn)
+        if val_loader is not None:
+            val_loss, val_acc, gait_acc, chorea_acc = _validate_model(model, val_loader, device, loss_fn)
+        else:
+            val_loss=val_acc=gait_acc=chorea_acc=-1
 
         epoch_len = len(str(num_epoch))
         print_msg = (
                 f"[{epoch:>{epoch_len}}/{num_epoch:>{epoch_len}}] | "
                 + f"train_loss: {np.mean(train_losses):.3f} | "
                 + f"train_acc: {np.mean(train_acces):.3f} | "
+                + f"train_gait_acc: {np.mean(train_gait_acces):.3f} | "
+                + f"train_chorea_acc: {np.mean(train_chorea_acces):.3f} | "
                 + f"val_loss: {val_loss:.3f} | "
-                + f"val_acc: {val_acc:.2f}"
+                + f"val_acc: {val_acc:.2f} | "
+                + f"val_gait_acc: {gait_acc:.2f} | "
+                + f"val_chorea_acc: {chorea_acc:.2f} | "
         )
-
+        if wandb_flag:
+            wandb.log({"train_loss":  np.mean(train_losses)})
+            wandb.log({"val_loss":  np.mean(val_acc)})
+            wandb.log({"train_gait_acc":  np.mean(train_gait_acces)})
+            wandb.log({"train_chorea_acc":  np.mean(train_chorea_acces)})
+            wandb.log({"val_gait_acc":  gait_acc})
+            wandb.log({"val_chorea_acc":  chorea_acc})
         early_stopping(val_loss, model)
 
         if verbose:
@@ -353,6 +384,9 @@ def _validate_model(model, val_loader, device, loss_fn):
     model.eval()
     losses = []
     acces = []
+    gait_acces = []
+    chora_acces = []
+    
     for i, (x, y, _) in enumerate(val_loader):
         with torch.inference_mode():
             x = x.to(device, dtype=torch.float)
@@ -360,9 +394,17 @@ def _validate_model(model, val_loader, device, loss_fn):
 
             logits = model(x)
             loss = loss_fn(logits, true_y)
+            # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
+            # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
+            # loss = loss_gait+loss_chorea
+            val_acc_gait, val_acc_chorea = calc_gait_and_chorea_acc(true_y, logits)
 
             pred_y = torch.argmax(logits, dim=1)
             true_y = torch.argmax(true_y, dim=1)
+
+
+            gait_acces.append(val_acc_gait.cpu().detach())
+            chora_acces.append(val_acc_chorea.cpu().detach())
             
             val_acc = torch.sum(pred_y == true_y)
             val_acc = val_acc / (list(pred_y.size())[0])
@@ -371,4 +413,33 @@ def _validate_model(model, val_loader, device, loss_fn):
             acces.append(val_acc.cpu().detach())
     losses = np.array(losses)
     acces = np.array(acces)
-    return np.mean(losses), np.mean(acces)
+    return np.mean(losses), np.mean(acces), np.mean(np.array(gait_acces)), np.mean(np.array(chora_acces))
+
+def get_gait(y):
+    class_1 = torch.sum(y[:, 0::2], dim=1)
+    class_2 = torch.sum(y[:, 1::2], dim=1)
+    return torch.stack([class_1, class_2], dim=1)
+    #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
+def get_chorea(y):
+    ipdb.set_trace()
+    return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
+    #return torch.tensor([y[i]+y[5+i] for i in range(5)])
+def get_valid_chorea(y):
+    return torch.unsqueeze(torch.sum(y[:, :10], dim=1)==1, axis=-1)
+
+def calc_gait_and_chorea_acc(true_y, pred_y):
+    pred_y_gait = get_gait(pred_y)
+    pred_y_chorea = get_chorea(pred_y)
+    true_y_gait = get_gait(true_y)
+    true_y_chorea = get_chorea(true_y)
+    valid_chorea = get_valid_chorea(true_y)
+
+    pred_gait = torch.argmax(pred_y_gait, dim=1)
+    pred_chorea = torch.argmax(valid_chorea*pred_y_chorea, dim=1)
+    true_gait = torch.argmax(true_y_gait, dim=1)
+    true_chorea = torch.argmax(valid_chorea*true_y_chorea, dim=1)
+    val_acc_gait = torch.sum(pred_gait == true_gait)
+    val_acc_chorea = torch.sum(pred_chorea == true_chorea) - torch.sum(torch.logical_not(valid_chorea))
+    val_acc_gait = val_acc_gait/(list(pred_y.size())[0])
+    val_acc_chorea = val_acc_chorea/(torch.sum(valid_chorea)+1e-7)
+    return val_acc_gait, val_acc_chorea

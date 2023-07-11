@@ -6,6 +6,7 @@ from scipy.signal import filtfilt
 from torch.utils.data import TensorDataset, DataLoader
 from sklearn.decomposition import PCA
 from scipy.stats import mode
+import ipdb
 
 
 def movingstd(data, window_size, windowmode='central'):
@@ -192,3 +193,39 @@ def tensor_data_loader(windowed_data_all, windowed_labels_all, device, batch_siz
     tensor_dataset = TensorDataset(tensor_x, tensor_y)  # create your datset
     tensor_dataloader = DataLoader(tensor_dataset, batch_size=batch_size, shuffle=False)  # create your dataloader
     return tensor_dataloader
+
+'''
+def get_label_chorea_comb(res, max_chorea_level=4):
+    severity_labels = res['win_chorea_all_sub']
+    valid_indices = np.where(severity_labels != -1)[0]
+    for key in res.keys():
+        if len(res[key]) == len(severity_labels):
+            res[key] = res[key][valid_indices]
+    res['gait_label_chorea_comb'] = np.ceil(res['win_chorea_all_sub']).astype(int) + (max_chorea_level+1) * res['win_labels_all_sub']
+    return res
+
+'''
+
+def get_label_chorea_comb(res, max_chorea_level=4):
+    chorea_level_int = np.ceil(res['win_chorea_all_sub']).astype(int)
+    chorea_level_int = chorea_level_int + (chorea_level_int<0)*(max_chorea_level+2)
+    res['gait_label_chorea_comb'] = chorea_level_int*2 + res['win_labels_all_sub']
+    # ipdb.set_trace()
+    return res
+
+    # Remove the instances with severity -1
+    # valid_indices = np.where(severity_labels != -1)
+    # accelerometer_data = accelerometer_data[valid_indices]
+    # walking_labels = walking_labels[valid_indices]
+    # severity_labels = severity_labels[valid_indices]
+    
+    # win_subjects_valid = win_subjects[valid_indices] 
+
+    
+    # # Create the combined labels array
+    # combined_labels = np.zeros((len(walking_labels), 10), dtype=int)
+    # combined_labels[:, 0] = 1 - walking_labels  # non-walking class
+    # combined_labels[np.arange(len(severity_labels)), severity_labels] = 1  # severity classes
+    
+    # np.savez(output_npz_file, win_acc_data=accelerometer_data, combined_labels=combined_labels, win_subjects=win_subjects_valid,StdIndex_all=StdIndex_all,original_data_len=original_data_len)
+    
