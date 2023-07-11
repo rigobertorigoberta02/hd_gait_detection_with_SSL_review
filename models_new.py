@@ -90,7 +90,7 @@ class GaitDetectorSSL:
         else:
             return self, Y, Wp, Wlog, cv_test_idxs, Wp_train, Wlog_train, cv_train_idxs
 
-    def fit(self, X, Y, wandb_flag, params, groups=None):
+    def fit(self, X, Y, params, groups=None,wandb_flag=False):
         sslmodel.verbose = self.verbose
 
         if self.verbose:
@@ -150,7 +150,7 @@ class GaitDetectorSSL:
 
 
 
-        sslmodel.train(model, train_loader, val_loader, self.device, class_weights=None, weights_path=self.weights_path,wandb_flag=self.wandb_flag)
+        sslmodel.train(model, train_loader, val_loader, self.device, class_weights=None, weights_path=self.weights_path,wandb_flag=wandb_flag)
         model.load_state_dict(torch.load(self.weights_path, self.device))
 
         # move model to cpu to get a device-less state dict (prevents device conflicts when loading on cpu/gpu later)

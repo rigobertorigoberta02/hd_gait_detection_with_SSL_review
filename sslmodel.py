@@ -303,9 +303,9 @@ def train(model, train_loader, val_loader, device, wandb_flag, class_weights=Non
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
     # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
     # loss = loss_gait+loss_chorea
-    #loss_fn = lambda x, y : loss_fn_base(get_gait(x),get_gait(y)) + \
-                                    #loss_fn_base(get_valid_chorea(y)*get_chorea(x),get_valid_chorea(y)*get_chorea(y))
-    loss_fn = loss_fn_base
+    loss_fn = lambda x, y : loss_fn_base(get_gait(x),get_gait(y)) + \
+                                    loss_fn_base(get_valid_chorea(y)*get_chorea(x),get_valid_chorea(y)*get_chorea(y))
+    
     early_stopping = EarlyStopping(
         patience=patience, path=weights_path, verbose=verbose, trace_func=print
     )
@@ -320,10 +320,8 @@ def train(model, train_loader, val_loader, device, wandb_flag, class_weights=Non
             x.requires_grad_(True)
             x = x.to(device, dtype=torch.float)
             true_y = y.to(device, dtype=torch.float)
-            true_y = true_y.squeeze(dim=1)
             optimizer.zero_grad()
             logits = model(x)
-            ipdb.set_trace()
             loss = loss_fn(logits, true_y)
             
             loss.backward()
@@ -391,7 +389,6 @@ def _validate_model(model, val_loader, device, loss_fn):
         with torch.inference_mode():
             x = x.to(device, dtype=torch.float)
             true_y = y.to(device, dtype=torch.float)
-
             logits = model(x)
             loss = loss_fn(logits, true_y)
             # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
@@ -421,7 +418,6 @@ def get_gait(y):
     return torch.stack([class_1, class_2], dim=1)
     #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
 def get_chorea(y):
-    ipdb.set_trace()
     return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
     #return torch.tensor([y[i]+y[5+i] for i in range(5)])
 def get_valid_chorea(y):

@@ -208,8 +208,8 @@ def main():
             #creating multiclass detector instance
             
             weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_{args.cohort}_only_{args.run_suffix}.pt')
-            gcd = GaitChoreaDetectorSSL(weights_path=weights_path, device=device, verbose=True,num_classes=num_class,wandb_flag=args.wandb_flag)
-            gcd, labels, predictions, predictions_log, cv_test_idxs, predictions_train, predictions_log_train, cv_train_idxs = gcd.cross_val(win_acc_data, one_hot_labels, params=params, groups=win_subjects, return_f1=False)
+            gcd = GaitChoreaDetectorSSL(weights_path=weights_path, device=device, verbose=True,num_classes=num_class)
+            gcd, labels, predictions, predictions_log, cv_test_idxs, predictions_train, predictions_log_train, cv_train_idxs = gcd.cross_val(win_acc_data, one_hot_labels, params=params, groups=win_subjects, return_f1=False,wandb_flag=args.wandb_flag)
             np.savez(os.path.join(OUTPUT_DIR, f'multiclass_predictions_and_logits_with_true_labels_and_subjects_{args.cohort}_only_{args.run_suffix}.npz'),predictions,predictions_log,labels,win_subjects, cv_test_idxs, predictions_train, predictions_log_train, cv_train_idxs)
         else:
             #creating walking detector instance
