@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 import ipdb
 import wandb
 
-verbose = False
+verbose = True
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
 
@@ -273,7 +273,7 @@ def predict(model, data_loader, device):
 
 
 def train(model, train_loader, val_loader, device, wandb_flag, class_weights=None, weights_path='weights.pt',
-          num_epoch=50, learning_rate=0.0001, patience=25):
+          num_epoch=10, learning_rate=0.0001, patience=25):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -299,12 +299,13 @@ def train(model, train_loader, val_loader, device, wandb_flag, class_weights=Non
         class_weights = torch.FloatTensor(class_weights).to(device)
         loss_fn_base = nn.CrossEntropyLoss(weight=class_weights)
     else:
-        loss_fn_base = nn.CrossEntropyLoss()
+        #loss_fn_base = nn.CrossEntropyLoss()
+        loss_fn_base = nn.MSELoss()
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
     # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
     # loss = loss_gait+loss_chorea
-    loss_fn = lambda x, y : loss_fn_base(get_gait(x),get_gait(y)) + \
-                                    loss_fn_base(get_valid_chorea(y)*get_chorea(x),get_valid_chorea(y)*get_chorea(y))
+    loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True),get_gait(y)) + \
+                                    loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True),get_valid_chorea(y)*get_chorea(y))
     
     early_stopping = EarlyStopping(
         patience=patience, path=weights_path, verbose=verbose, trace_func=print
@@ -412,13 +413,38 @@ def _validate_model(model, val_loader, device, loss_fn):
     acces = np.array(acces)
     return np.mean(losses), np.mean(acces), np.mean(np.array(gait_acces)), np.mean(np.array(chora_acces))
 
-def get_gait(y):
-    class_1 = torch.sum(y[:, 0::2], dim=1)
-    class_2 = torch.sum(y[:, 1::2], dim=1)
-    return torch.stack([class_1, class_2], dim=1)
+def get_gait(y, is_logits=False):
+    try:
+        if is_logits:
+            # TODO: change to softmax
+            y = torch.sigmoid(y)
+        class_1 = torch.sum(y[:, 0::2], dim=1)
+        class_2 = torch.sum(y[:, 1::2], dim=1)
+        return torch.stack([class_1, class_2], dim=1)
+    except:
+        ipdb.set_trace()
     #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
-def get_chorea(y):
-    return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
+def get_chorea(y, is_logits=False):
+    
+    try:
+        if is_logits:
+            y = torch.sigmoid(y)
+        return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
+    except:
+        ipdb.set_trace()
+
+def get_gait_grad(x, y):
+    ''' return dL/dx for -x'''
+    y_gait = get_gait(y)
+    y_gait_repeat = y_gait.repeat([1, 5])
+    return  y_gait_repeat/x
+
+def get_chorea_grad(x, y):
+    ipdb.set_trace()
+    y_chorea = get_chorea(y)
+    valid_chorea = get_valid_chorea(y)
+    y_chorea_repeat = y_chorea.repeat_interleave(2,dim=1)
+    return valid_chorea*y_chorea_repeat/x
     #return torch.tensor([y[i]+y[5+i] for i in range(5)])
 def get_valid_chorea(y):
     return torch.unsqueeze(torch.sum(y[:, :10], dim=1)==1, axis=-1)
