@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 import ipdb
 import wandb
 
-verbose = True
+verbose = False
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
 
@@ -272,8 +272,8 @@ def predict(model, data_loader, device):
     )
 
 
-def train(model, train_loader, val_loader, device, wandb_flag, class_weights=None, weights_path='weights.pt',
-          num_epoch=10, learning_rate=0.0001, patience=25):
+def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator=True, class_weights=None, weights_path='weights.pt',
+          num_epoch=30, learning_rate=0.0001, patience=25):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -304,8 +304,14 @@ def train(model, train_loader, val_loader, device, wandb_flag, class_weights=Non
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
     # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
     # loss = loss_gait+loss_chorea
-    loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True),get_gait(y)) + \
+    if is_init_estimator:
+        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True),get_gait(y)) + \
                                     loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True),get_valid_chorea(y)*get_chorea(y))
+    else:
+        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False),get_gait(y[:,:-1])) + \
+                                    loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False),y[:,-1:]*get_chorea(y[:,:-1]))
+    
+
     
     early_stopping = EarlyStopping(
         patience=patience, path=weights_path, verbose=verbose, trace_func=print
@@ -324,6 +330,7 @@ def train(model, train_loader, val_loader, device, wandb_flag, class_weights=Non
             optimizer.zero_grad()
             logits = model(x)
             loss = loss_fn(logits, true_y)
+
             
             loss.backward()
             optimizer.step()
@@ -436,15 +443,18 @@ def get_chorea(y, is_logits=False):
 def get_gait_grad(x, y):
     ''' return dL/dx for -x'''
     y_gait = get_gait(y)
+    x_gait = get_gait(x)
     y_gait_repeat = y_gait.repeat([1, 5])
-    return  y_gait_repeat/x
+    x_gait_repeat = x_gait.repeat([1, 5])
+    return  y_gait_repeat/(x_gait_repeat+1e-7)
 
 def get_chorea_grad(x, y):
-    ipdb.set_trace()
     y_chorea = get_chorea(y)
     valid_chorea = get_valid_chorea(y)
+    x_chorea = get_chorea(x)
     y_chorea_repeat = y_chorea.repeat_interleave(2,dim=1)
-    return valid_chorea*y_chorea_repeat/x
+    x_chorea_repeat = x_chorea.repeat_interleave(2,dim=1)
+    return valid_chorea*y_chorea_repeat/(x_chorea_repeat+1e-7)
     #return torch.tensor([y[i]+y[5+i] for i in range(5)])
 def get_valid_chorea(y):
     return torch.unsqueeze(torch.sum(y[:, :10], dim=1)==1, axis=-1)
