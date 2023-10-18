@@ -294,22 +294,21 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, amsgrad=True
     )
-
     if class_weights is not None:
         class_weights = torch.FloatTensor(class_weights).to(device)
         loss_fn_base = nn.CrossEntropyLoss(weight=class_weights)
     else:
-        #loss_fn_base = nn.CrossEntropyLoss()
+        # loss_fn_base = nn.CrossEntropyLoss()
         loss_fn_base = nn.MSELoss()
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
     # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
     # loss = loss_gait+loss_chorea
     if is_init_estimator:
-        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True),get_gait(y)) + \
-                                    loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True),get_valid_chorea(y)*get_chorea(y))
+        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) + \
+                                    10*loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True,is_pred=True),get_valid_chorea(y)*get_chorea(y))
     else:
-        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False),get_gait(y[:,:-1])) + \
-                                    loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False),y[:,-1:]*get_chorea(y[:,:-1]))
+        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True)) + \
+                                    10*loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False, is_pred=True),y[:,-1:]*get_chorea(y[:,:-1],is_pred=True))
     
 
     
@@ -420,50 +419,72 @@ def _validate_model(model, val_loader, device, loss_fn):
     acces = np.array(acces)
     return np.mean(losses), np.mean(acces), np.mean(np.array(gait_acces)), np.mean(np.array(chora_acces))
 
-def get_gait(y, is_logits=False):
+def get_gait(y, is_logits=False, is_pred=False):
     try:
         if is_logits:
             # TODO: change to softmax
             y = torch.sigmoid(y)
-        class_1 = torch.sum(y[:, 0::2], dim=1)
-        class_2 = torch.sum(y[:, 1::2], dim=1)
+
+        if is_pred:
+            class_1 = y[:,0]
+            class_2 = y[:,1]
+        else:
+            class_1 = torch.sum(y[:, 0::2], dim=1)
+            class_2 = torch.sum(y[:, 1::2], dim=1)
+
         return torch.stack([class_1, class_2], dim=1)
     except:
         ipdb.set_trace()
     #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
-def get_chorea(y, is_logits=False):
+def get_chorea(y, is_logits=False,is_pred=True):
     
     try:
         if is_logits:
             y = torch.sigmoid(y)
-        return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
+        # is_pred = y.shape[-1] == 8
+        if y.shape[-1] <= 10:
+            return torch.stack([y[:,i] for i in range(2, 7)], dim=1)
+        else:
+            return torch.stack([y[:,i*2] + y[:,i*2+1] for i in range(5)], dim=1)
     except:
         ipdb.set_trace()
 
-def get_gait_grad(x, y):
+def get_gait_grad(x, y, is_multi_label=True):
     ''' return dL/dx for -x'''
     y_gait = get_gait(y)
     x_gait = get_gait(x)
-    y_gait_repeat = y_gait.repeat([1, 5])
-    x_gait_repeat = x_gait.repeat([1, 5])
-    return  y_gait_repeat/(x_gait_repeat+1e-7)
+    x_gait_prob = torch.nn.functional.softmax(x_gait, dim=1)
+    if is_multi_label:
+        x_gait = get_gait(x,is_pred=True)
+        x_gait_prob = torch.nn.functional.softmax(x_gait, dim=1)
+        return y_gait - x_gait_prob
+    else:
+        y_gait_repeat = y_gait.repeat([1, 5])
+        x_gait_repeat = x_gait_prob.repeat([1, 5])
+        return  y_gait_repeat - x_gait_repeat
 
-def get_chorea_grad(x, y):
+def get_chorea_grad(x, y, is_multi_label=True):
     y_chorea = get_chorea(y)
     valid_chorea = get_valid_chorea(y)
     x_chorea = get_chorea(x)
-    y_chorea_repeat = y_chorea.repeat_interleave(2,dim=1)
-    x_chorea_repeat = x_chorea.repeat_interleave(2,dim=1)
-    return valid_chorea*y_chorea_repeat/(x_chorea_repeat+1e-7)
+    x_chorea_prob = torch.nn.functional.softmax(x_chorea, dim=1)
+    if is_multi_label:
+        x_chorea = get_chorea(x,is_pred=True)
+        x_chorea_prob = torch.nn.functional.softmax(x_chorea, dim=1)
+        return valid_chorea*(y_chorea - x_chorea_prob)
+    else:
+        y_chorea_repeat = y_chorea.repeat_interleave(2,dim=1)
+        x_chorea_repeat = x_chorea_prob.repeat_interleave(2,dim=1)
+        return valid_chorea*(y_chorea_repeat - x_chorea_repeat)
     #return torch.tensor([y[i]+y[5+i] for i in range(5)])
 def get_valid_chorea(y):
     return torch.unsqueeze(torch.sum(y[:, :10], dim=1)==1, axis=-1)
 
 def calc_gait_and_chorea_acc(true_y, pred_y):
-    pred_y_gait = get_gait(pred_y)
-    pred_y_chorea = get_chorea(pred_y)
-    true_y_gait = get_gait(true_y)
-    true_y_chorea = get_chorea(true_y)
+    pred_y_gait = get_gait(pred_y,is_pred=True)
+    pred_y_chorea = get_chorea(pred_y,is_pred=True)
+    true_y_gait = get_gait(true_y, is_pred=False)
+    true_y_chorea = get_chorea(true_y, is_pred=False)
     valid_chorea = get_valid_chorea(true_y)
 
     pred_gait = torch.argmax(pred_y_gait, dim=1)
