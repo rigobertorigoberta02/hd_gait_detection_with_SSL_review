@@ -75,7 +75,7 @@ OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
 VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/multiclass_hd_only/multiclass_separated_labels'
 
 SRC_SAMPLE_RATE = int(100) #hz
-STD_THRESH = 0.015
+STD_THRESH = 0.05
 WINDOW_SIZE = int(30*10)
 WINDOW_OVERLAP = 0
 
@@ -88,6 +88,7 @@ def main():
         win_data_all_sub = np.empty((0,3,WINDOW_SIZE)) 
         win_labels_all_sub = win_subjects = all_subjects = win_chorea_all_sub = win_shift_all_sub = np.empty((0,1))
         StdIndex_all = inclusion_idx = original_data_len = np.empty((0,))
+        win_video_time_all_sub = np.empty((0,1))
         NumWin = []
 
         for file in os.listdir(RAW_DATA_AND_LABELS_DIR):
@@ -112,37 +113,38 @@ def main():
 
             ## apply moving standard deviation 
             #data_std = preprocessing.movingstd(data=acc_data,window_size=3*SRC_SAMPLE_RATE)
-            data_std = preprocessing.movingstd(data=acc_data,window_size=WINDOW_SIZE)
-            StdIndex = data_std > STD_THRESH
-            # Remove low activity data (i.e. low std)
-            acc_data = acc_data[StdIndex, :]
-            labels = labels[StdIndex]
-            chorea = chorea[StdIndex]
-            video_time = video_time[StdIndex]
+            # data_std = preprocessing.movingstd(data=acc_data,window_size=WINDOW_SIZE)
+            # StdIndex = data_std > STD_THRESH
+            # # Remove low activity data (i.e. low std)
+            # acc_data = acc_data[StdIndex, :]
+            # labels = labels[StdIndex]
+            # chorea = chorea[StdIndex]
+            # video_time = video_time[StdIndex]
             
             ## apply bandpassfilter
-            #acc_data = preprocessing.bandpass_filter(data=acc_data,low_cut=0.2,high_cut=15,sampling_rate=SRC_SAMPLE_RATE,order=4)
-            acc_data = preprocessing.lowpass_filter(data=acc_data,low_cut=5 ,sampling_rate=SRC_SAMPLE_RATE,order=4)
+            acc_data = preprocessing.bandpass_filter(data=acc_data,low_cut=0.2,high_cut=15,sampling_rate=SRC_SAMPLE_RATE,order=4)
+            # acc_data = preprocessing.lowpass_filter(data=acc_data,low_cut=5 ,sampling_rate=SRC_SAMPLE_RATE,order=4)
             ## apply resampling 
             acc_data,labels, chorea, video_time = preprocessing.resample(data=acc_data,labels=labels,chorea=chorea, video_time=video_time ,original_fs=SRC_SAMPLE_RATE,target_fs=30)
 
 
             ## deivide data and labels to fixed windows
-            data, labels, chorea, video_time, shift, inclusion, NumWinSub = preprocessing.data_windowing(data=acc_data, labels=labels, chorea=chorea, video_time=video_time, window_size = WINDOW_SIZE, window_overlap=WINDOW_OVERLAP,
-                                                                                std_idx=StdIndex)
+            data, labels, chorea, video_time, shift, NumWinSub = preprocessing.data_windowing(data=acc_data, labels=labels, chorea=chorea, video_time=video_time, window_size = WINDOW_SIZE, window_overlap=WINDOW_OVERLAP,
+                                                                                std_th=STD_THRESH)
             # Concat the data and labels of the different subjects
             win_data_all_sub = np.append(win_data_all_sub, data, axis=0)
             win_labels_all_sub = np.append(win_labels_all_sub, labels, axis=0)
             win_chorea_all_sub = np.append(win_chorea_all_sub, chorea, axis=0)
             win_shift_all_sub = np.append(win_shift_all_sub, shift, axis=0)
-
+            win_video_time_all_sub = np.append(win_video_time_all_sub, video_time, axis=0)
+            print(file,win_data_all_sub.shape)
             # Create subject vector that will use for group the data in the training
             subject = np.tile(subject_name, (len(labels), 1)).reshape(-1, 1)
             win_subjects = np.append(win_subjects, subject)
 
-            StdIndex_all = np.append(StdIndex_all, StdIndex, axis=0)
-            inclusion_idx = np.append(inclusion_idx.squeeze(), inclusion, axis=0)
-            original_data_len = np.append(original_data_len, len(StdIndex))
+            # StdIndex_all = np.append(StdIndex_all, StdIndex, axis=0)
+            # inclusion_idx = np.append(inclusion_idx.squeeze(), inclusion, axis=0)
+            # original_data_len = np.append(original_data_len, len(StdIndex))
             NumWin.append(NumWinSub)
 
         ## Save arrays after preprocessing and windowing
@@ -158,28 +160,28 @@ def main():
             # Save the number of windows per subject
             with open(os.path.join(args.output_path, "NumWinSub.p"), 'wb') as outputFile:
                 pickle.dump(NumWinSub, outputFile)
-            '''
+         
+           '''
+        # ipdb.set_trace()
         # Save the data, labels and groups
         res = {'win_data_all_sub': win_data_all_sub,
                'win_labels_all_sub': win_labels_all_sub,
                'win_subjects': win_subjects,
-               'StdIndex_all': StdIndex_all,
-               'original_data_len' : original_data_len,
                'win_chorea_all_sub': win_chorea_all_sub,
                'win_shift_all_sub': win_shift_all_sub,
+               'win_video_time_all_sub': win_video_time_all_sub
                }
         # np.savez(os.path.join(PROCESSED_DATA_DIR, f'windows_input_to_models_{COHORT}_only.npz'), **res)
-        ipdb.set_trace()
-        np.savez(os.path.join(PROCESSED_DATA_DIR, f'windows_input_to_models_{args.cohort}_only_{args.run_suffix}.npz'), win_data_all_sub, win_labels_all_sub, win_subjects, StdIndex_all, original_data_len, win_chorea_all_sub)
+        #np.savez(os.path.join(PROCESSED_DATA_DIR, f'windows_input_to_models_{args.cohort}_only_{args.run_suffix}.npz'), win_data_all_sub, win_labels_all_sub, win_subjects, StdIndex_all, original_data_len, win_chorea_all_sub)
         if args.create_multi_class:
             res = preprocessing.get_label_chorea_comb(res)
             res['arr_0'] = res['win_data_all_sub']
             res['arr_1'] = res['win_labels_all_sub']
             res['arr_2'] = res['win_subjects']
-            res['arr_3'] = res['StdIndex_all']
-            res['arr_4'] = res['original_data_len']
             res['arr_5'] = res['win_chorea_all_sub']
             res['arr_6'] = res['win_shift_all_sub']
+            res['arr_7'] = res['win_video_time_all_sub']
+            ipdb.set_trace()
             np.savez(os.path.join(PROCESSED_DATA_DIR, f'windows_input_to_multiclass_model_{args.cohort}_only_{args.run_suffix}.npz'), **res)
 
     if args.cross_val_mode:
