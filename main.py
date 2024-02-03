@@ -100,8 +100,10 @@ def main():
             if args.cohort == 'hd':
                 if 'TCCO' in file:
                     continue
-                else:
+                elif 'WS' in file:
                     data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
+                else:
+                    continue
             acc_data = data_file['arr_0'].astype('float')
             labels = data_file['arr_1']
             chorea = data_file['arr_2']

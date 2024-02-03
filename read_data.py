@@ -6,34 +6,55 @@ import csv
 import ipdb
 
 SYNC_FILE_NAME = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/sync_params.xlsx'
+WS_SYNC_FILE_NAME = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/ws_sync_params.xlsx'
 KEY_COLUMN = 'video name'
 VALUE_COLUMNS = ['video 2m walk start time (seconds)', 'sensor 2m walk start time (seconds)','FPS']
 SYNC_SHEET_NAME = 'Sheet1'
 
 ACC_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/acc_data/right_wrist'
+WS_ACC_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/acc_data/WS_acc_files'
 LABEL_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/labeled data'
+OPAL_LABEL_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/labeled data/WS_label_files'
 TARGET_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/synced_labeled_data_walking_non_walking'
 
 ACC_SAMPLE_RATE = 100 # Hz
 #LABEL_SAMPLE_RATE = 59.94005994005994 # for movies from TC center 60 FPS
 missing_labels = []
-def main():
-    sync_dict = create_dictionary_from_excel(SYNC_FILE_NAME, SYNC_SHEET_NAME, KEY_COLUMN, VALUE_COLUMNS)
-    for patient, val  in sync_dict.items():
-        sync_sec = val[0:2]
-        label_sample_rate = val[2]
-        acc_data = read_acc_data(patient=patient)
-        label_data, chorea_labels = read_label_data(patient=patient, 
-                                     source_sample_rate=label_sample_rate,
-                                     target_sample_rate=ACC_SAMPLE_RATE)
-        if label_data is None:
-            continue
-        acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync = sync_data(acc_data, 
-                                                   label_data,
-                                                   chorea_labels,
-                                                   sync_sec, 
-                                                   ACC_SAMPLE_RATE)
-        np.savez(os.path.join(TARGET_DIR, patient + '.npz'), acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync)
+def main(modes=['opal', 'video']):
+    if 'video' in modes:
+        sync_dict = create_dictionary_from_excel(SYNC_FILE_NAME, SYNC_SHEET_NAME, KEY_COLUMN, VALUE_COLUMNS)
+        for patient, val  in sync_dict.items():
+            sync_sec = val[0:2]
+            label_sample_rate = val[2]
+            acc_data = read_acc_data(patient=patient)
+            label_data, chorea_labels = read_label_data(patient=patient, 
+                                        source_sample_rate=label_sample_rate,
+                                        target_sample_rate=ACC_SAMPLE_RATE)
+            if label_data is None:
+                continue
+            acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync = sync_data(acc_data, 
+                                                    label_data,
+                                                    chorea_labels,
+                                                    sync_sec, 
+                                                    ACC_SAMPLE_RATE)
+            np.savez(os.path.join(TARGET_DIR, patient + '.npz'), acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync)
+    if 'opal' in modes:
+        # sync_dict = create_dictionary_from_excel(
+        sync_dict = create_dictionary_from_excel(WS_SYNC_FILE_NAME, SYNC_SHEET_NAME, KEY_COLUMN, VALUE_COLUMNS)
+        for patient, val  in sync_dict.items():
+            sync_sec = val[0:2]
+            label_data = read_label_data_from_opal(patient=patient, 
+                        target_sample_rate=ACC_SAMPLE_RATE,
+                        files_dir=OPAL_LABEL_DATA_DIR)
+            chorea_labels = -np.ones_like(label_data)
+            acc_data = read_acc_data(patient=patient.replace("IW0", "IW"), files_dir=WS_ACC_DATA_DIR)
+            acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync = sync_data(acc_data, 
+                                        label_data,
+                                        chorea_labels,
+                                        sync_sec, 
+                                        ACC_SAMPLE_RATE)
+            np.savez(os.path.join(TARGET_DIR, patient + '.npz'), acc_data_sync, label_data_sync, chorea_labels_sync, time_data_sync)
+
 
 
 def create_dictionary_from_excel(file_path, sheet_name, key_column, value_columns):
@@ -155,8 +176,8 @@ def read_label_data(patient,
                        'stepping up and down a step':0, 'sitiing down':0, 'moving hands up':0,
                        'clapping hands': 0, 'moving hands down':0, 'staidning up':0, 'step ups':-9,
                        'stambling':0, 'stepping over a step':0, 'stending up':0, 'stending':0, 
-                       'stepping off of step': 0, 'standing off a step':0, 'turning around':0, 
-                       'putting the arms crossed on the chest\n':0, 'walking backwards': 0,
+                       'stepping off of step': 0, 'standing off a step':0, 'turning around':-9, 
+                       'putting the arms crossed on the chest\n':0, 'walking backwards': -9,
                        'putting the arms crossed on the chest':0, 'arms crossed on the chest\n':0, 
                        '-9': -9}
     try:
@@ -164,16 +185,18 @@ def read_label_data(patient,
     except:
         ipdb.set_trace()
     last_labeled_frame_sample = int(np.round(last_labeled_frame*(target_sample_rate/source_sample_rate)))
-    labels_array = np.zeros(last_labeled_frame_sample+1).astype(int)
+    labels_array = -np.ones(last_labeled_frame_sample+1).astype(int)
     for label_set in labels_by_frames:
         # if label_set[2] not in missing_labels and label_set[2] not in activity__dict.keys():
         #     print(f'missing {label_set[2]}')
         #     missing_labels.append(label_set[2])
         assert label_set[2] in activity__dict.keys(), f'label {label_set[2]} not in set of patinet: {patient}'
+        start_sample = int(np.round(label_set[0])*(target_sample_rate/source_sample_rate))
+        end_sample = int(np.round(label_set[1])*(target_sample_rate/source_sample_rate))
         if label_set[2]=='walking':
-            start_sample = int(np.round(label_set[0])*(target_sample_rate/source_sample_rate))
-            end_sample = int(np.round(label_set[1])*(target_sample_rate/source_sample_rate))
             labels_array[start_sample:end_sample]=1
+        elif activity__dict[label_set[2]]==0:
+            labels_array[start_sample:end_sample]=0
     chorea_labels = np.ones(last_labeled_frame_sample+1).astype(int) * -1
     for label_set in chorea_labels_by_frames:
         start_sample = int(np.round(label_set[0])*(target_sample_rate/source_sample_rate))
@@ -183,6 +206,45 @@ def read_label_data(patient,
     # TODO: get label FPS ???????
     return labels_array, chorea_labels
 
+def read_label_data_from_opal(patient, 
+                    target_sample_rate=ACC_SAMPLE_RATE,
+                    files_dir=LABEL_DATA_DIR):
+    file_name = os.path.join(files_dir, f'AnnotationsTable_{patient}.csv')
+    data = []
+    max_sec = 0
+    with open(file_name, 'r') as file:
+        for index, line in enumerate(file.readlines()):
+            if index == 0:
+                continue
+            line_split = line.split(',')
+            if len(line_split) == 0:
+                continue
+            if line_split[7] == 'NaN':
+                continue
+            cell = [float(line_split[index]) for index in [7, 8, 4, 5]] # start, end, walking, turning
+            if cell[0] > 0:
+                data.append(cell)
+                max_sec = np.maximum(max_sec, cell[1])
+
+        max_sample = int(np.ceil(max_sec * target_sample_rate))
+        label_arr = -2 * np.ones(max_sample)
+        for cell in data:
+            start_index = np.round(cell[0] * target_sample_rate)
+            stop_index = np.round(cell[1] * target_sample_rate)
+            walking = cell[2]
+            turning = cell[3]
+            if walking and not turning:
+                label = 1
+            elif turning:
+                label = -1
+            else:
+                label = 0
+            label_arr[int(start_index):int(stop_index)] = label
+    return label_arr
+            
+
+
+            
 def sync_data(acc_data, label_data, chorea_labels, sync_sec, ACC_SAMPLE_RATE):
     '''
     gets 2 numpy array and the sync time in seconds.
@@ -204,4 +266,4 @@ def sync_data(acc_data, label_data, chorea_labels, sync_sec, ACC_SAMPLE_RATE):
     
 
 if __name__ == "__main__":
-    main()
+    main(modes = ['opal'])

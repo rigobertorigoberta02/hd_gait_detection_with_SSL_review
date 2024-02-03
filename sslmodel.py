@@ -12,6 +12,7 @@ from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
 import ipdb
 import wandb
+import segmentation_model
 
 verbose = False
 wandb_flag = False
@@ -196,7 +197,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2):
+def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmentor'):
     """
     Load and return the Self Supervised Learning (SSL) model from pytorch hub.
 
@@ -204,6 +205,7 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2):
     :param bool pretrained: Initialise the model with UKB self-supervised pretrained weights.
     :return: pytorch SSL model
     :rtype: nn.Module
+    :model_type:'classifier', 'segmentor'
     """
 
     repo_name = 'ssl-wearables'
@@ -229,7 +231,10 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2):
 
     sslnet: nn.Module = torch.hub.load(repo_path, 'harnet10', trust_repo=True, source=source, class_num=num_classes,
                                        pretrained=pretrained, verbose=verbose)
-    return sslnet
+    if model_type=='classifier':
+        return sslnet
+    seg_model = segmentation_model.SegModel(sslnet)
+    return seg_model
 
 
 def predict(model, data_loader, device):
@@ -255,9 +260,16 @@ def predict(model, data_loader, device):
         with torch.inference_mode():
             x = x.to(device, dtype=torch.float)
             logits = model(x)
+            # import segmentation_model
+            # seg_model = segmentation_model.SegModel(model)
+            # logits2 = seg_model(x)
+            # ipdb.set_trace()
             true_list.append(y)
             predictions_logits_list.append(logits.cpu())
-            pred_y = torch.argmax(logits, dim=1)
+            try:
+                pred_y = torch.argmax(logits, dim=1)
+            except:
+                ipdb.set_trace()
             predictions_list.append(pred_y.cpu())
             pid_list.extend(pid)
     true_list = torch.cat(true_list)
@@ -328,6 +340,7 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
             true_y = y.to(device, dtype=torch.float)
             optimizer.zero_grad()
             logits = model(x)
+            ipdb.set_trace()
             loss = loss_fn(logits, true_y)
 
             

@@ -184,7 +184,9 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
         windowed_chorea = np.expand_dims(windowed_chorea, axis=-1)
         # windowed_labels_sum = np.sum(windowed_labels,axis=1)
         windowed_labels_mean = np.mean(windowed_labels,axis=1)
-        windowed_labels_valid = np.logical_or(windowed_labels_mean > 0.6, windowed_labels_mean < 0.3)
+        windowed_labels_walking = np.mean(windowed_labels==1,axis=1)
+        windowed_labels_not_walking = np.mean(windowed_labels==0,axis=1)
+        windowed_labels_valid = np.logical_or(windowed_labels_walking > 0.6, windowed_labels_not_walking > 0.7)
         # windowed_labels_valid = np.zeros((len(windowed_labels),1))
         # windowed_labels_valid[windowed_labels_sum/windowed_labels.shape[1]>0.6] = 1
         # windowed_labels_valid = windowed_labels_valid[np.where(np.logical_or(windowed_labels_sum/windowed_labels.shape[1]<0.4,windowed_labels_sum/windowed_labels.shape[1]>0.6))]
