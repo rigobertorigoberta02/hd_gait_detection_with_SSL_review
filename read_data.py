@@ -201,7 +201,7 @@ def read_label_data(patient,
     for label_set in chorea_labels_by_frames:
         start_sample = int(np.round(label_set[0])*(target_sample_rate/source_sample_rate))
         end_sample = int(np.round(label_set[1])*(target_sample_rate/source_sample_rate))
-        level =  -1 if label_set[2] in ['', 'hided'] else int(label_set[2])
+        level =  -1 if label_set[2] in ['', 'hided','-9'] else int(label_set[2])
         chorea_labels[start_sample:end_sample]=level     
     # TODO: get label FPS ???????
     return labels_array, chorea_labels
@@ -266,4 +266,4 @@ def sync_data(acc_data, label_data, chorea_labels, sync_sec, ACC_SAMPLE_RATE):
     
 
 if __name__ == "__main__":
-    main(modes = ['opal'])
+    main(modes = ['video'])

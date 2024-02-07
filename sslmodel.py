@@ -10,6 +10,8 @@ from tqdm import tqdm
 from torchvision import transforms
 from torch.utils.data.dataset import Dataset
 from torch.utils.data import DataLoader
+import torch.nn.functional as F
+
 import ipdb
 import wandb
 import segmentation_model
@@ -17,6 +19,7 @@ import segmentation_model
 verbose = False
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
+task = 'classification'
 
 
 class RandomSwitchAxis:
@@ -197,7 +200,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmentor'):
+def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmentation'):
     """
     Load and return the Self Supervised Learning (SSL) model from pytorch hub.
 
@@ -231,7 +234,7 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmen
 
     sslnet: nn.Module = torch.hub.load(repo_path, 'harnet10', trust_repo=True, source=source, class_num=num_classes,
                                        pretrained=pretrained, verbose=verbose)
-    if model_type=='classifier':
+    if model_type=='classification':
         return sslnet
     seg_model = segmentation_model.SegModel(sslnet)
     return seg_model
@@ -285,7 +288,7 @@ def predict(model, data_loader, device):
 
 
 def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator=True, class_weights=None, weights_path='weights.pt',
-          num_epoch=30, learning_rate=0.0001, patience=25):
+          num_epoch=30, learning_rate=0.0001, patience=25, model_type='segmentation'):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -306,32 +309,48 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
     optimizer = torch.optim.Adam(
         model.parameters(), lr=learning_rate, amsgrad=True
     )
-    if class_weights is not None:
-        class_weights = torch.FloatTensor(class_weights).to(device)
-        loss_fn_base = nn.CrossEntropyLoss(weight=class_weights)
-    else:
-        # loss_fn_base = nn.CrossEntropyLoss()
-        loss_fn_base = nn.MSELoss()
+    if model_type =='classification':
+        if class_weights is not None:
+            class_weights = torch.FloatTensor(class_weights).to(device)
+            loss_fn_base = nn.CrossEntropyLoss(weight=class_weights)
+        else:
+            # loss_fn_base = nn.CrossEntropyLoss()
+            loss_fn_base = nn.MSELoss()
+        if is_init_estimator:
+            loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) + \
+                                    10*loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True,is_pred=True),get_valid_chorea(y)*get_chorea(y))
+        else:
+            loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True)) + \
+                                    10*loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False, is_pred=True),y[:,-1:]*get_chorea(y[:,:-1],is_pred=True))
+    
+
+
+    elif model_type=='segmentation':
+        def segmentaion_loss_fn(model_out, y):
+            gait_labels = y[:, :, 0]
+            chorea_labels = y[:, :, 1]
+            gait_valid = y[:, :, 2]
+            chorea_valid = y[:, :, 3]
+            gait_loss = _masked_cross_entropy(gait_labels, model_out[:,0:2,:], gait_valid)
+            chorea_loss = _masked_cross_entropy(chorea_labels, model_out[:,2:7,:], chorea_valid)
+            return gait_loss + chorea_loss
+        loss_fn = segmentaion_loss_fn
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
     # loss_chorea = loss_fn(get_chorea(logits),get_chorea(true_y))
     # loss = loss_gait+loss_chorea
-    if is_init_estimator:
-        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) + \
-                                    10*loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True,is_pred=True),get_valid_chorea(y)*get_chorea(y))
-    else:
-        loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True)) + \
-                                    10*loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False, is_pred=True),y[:,-1:]*get_chorea(y[:,:-1],is_pred=True))
-    
+
 
     
     early_stopping = EarlyStopping(
         patience=patience, path=weights_path, verbose=verbose, trace_func=print
     )
 
+    gait_cross_entropy = nn.CrossEntropyLoss()
+    chorea_cross_entropy = nn.CrossEntropyLoss()
+
     for epoch in range(num_epoch):
         model.train()
         train_losses = []
-        train_acces = []
         train_gait_acces = []
         train_chorea_acces = []
         for i, (x, y, _) in enumerate(tqdm(train_loader, disable=not verbose)):
@@ -340,7 +359,6 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
             true_y = y.to(device, dtype=torch.float)
             optimizer.zero_grad()
             logits = model(x)
-            ipdb.set_trace()
             loss = loss_fn(logits, true_y)
 
             
@@ -349,30 +367,21 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
 
             train_acc_gait, train_acc_chorea = calc_gait_and_chorea_acc(true_y, logits)
 
-            pred_y = torch.argmax(logits, dim=1)
-            true_y = torch.argmax(true_y,dim=1)
-            train_acc = torch.sum(pred_y == true_y)
-            train_acc = train_acc / (pred_y.size()[0])
-
             train_losses.append(loss.cpu().detach())
-            train_acces.append(train_acc.cpu().detach())
             train_gait_acces.append(train_acc_gait.cpu().detach())
             train_chorea_acces.append(train_acc_chorea.cpu().detach())
-
         if val_loader is not None:
-            val_loss, val_acc, gait_acc, chorea_acc = _validate_model(model, val_loader, device, loss_fn)
+            val_loss, gait_acc, chorea_acc = _validate_model(model, val_loader, device, loss_fn)
         else:
-            val_loss=val_acc=gait_acc=chorea_acc=-1
+            val_loss=gait_acc=chorea_acc=-1
 
         epoch_len = len(str(num_epoch))
         print_msg = (
                 f"[{epoch:>{epoch_len}}/{num_epoch:>{epoch_len}}] | "
                 + f"train_loss: {np.mean(train_losses):.3f} | "
-                + f"train_acc: {np.mean(train_acces):.3f} | "
                 + f"train_gait_acc: {np.mean(train_gait_acces):.3f} | "
                 + f"train_chorea_acc: {np.mean(train_chorea_acces):.3f} | "
                 + f"val_loss: {val_loss:.3f} | "
-                + f"val_acc: {val_acc:.2f} | "
                 + f"val_gait_acc: {gait_acc:.2f} | "
                 + f"val_chorea_acc: {chorea_acc:.2f} | "
         )
@@ -396,12 +405,22 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
 
     return model
 
+def _masked_cross_entropy(labels, logits, mask):
+    masked_logits = logits * mask.unsqueeze(1)
+    masked_labels = labels.long() * mask.long()
+
+    # Compute the cross-entropy loss
+    loss = F.cross_entropy(masked_logits, masked_labels, reduction='sum')
+
+    # Normalize the loss by the number of valid pixels
+    num_valid_pixels = mask.sum().item()
+    normalized_loss = loss / (num_valid_pixels + 1e-5)
+    return normalized_loss
 
 def _validate_model(model, val_loader, device, loss_fn):
     """ Iterate over a validation data loader and return mean model loss and accuracy. """
     model.eval()
     losses = []
-    acces = []
     gait_acces = []
     chora_acces = []
     
@@ -416,21 +435,12 @@ def _validate_model(model, val_loader, device, loss_fn):
             # loss = loss_gait+loss_chorea
             val_acc_gait, val_acc_chorea = calc_gait_and_chorea_acc(true_y, logits)
 
-            pred_y = torch.argmax(logits, dim=1)
-            true_y = torch.argmax(true_y, dim=1)
-
-
             gait_acces.append(val_acc_gait.cpu().detach())
             chora_acces.append(val_acc_chorea.cpu().detach())
-            
-            val_acc = torch.sum(pred_y == true_y)
-            val_acc = val_acc / (list(pred_y.size())[0])
 
             losses.append(loss.cpu().detach())
-            acces.append(val_acc.cpu().detach())
     losses = np.array(losses)
-    acces = np.array(acces)
-    return np.mean(losses), np.mean(acces), np.mean(np.array(gait_acces)), np.mean(np.array(chora_acces))
+    return np.mean(losses), np.mean(np.array(gait_acces)), np.mean(np.array(chora_acces))
 
 def get_gait(y, is_logits=False, is_pred=False):
     try:
@@ -494,18 +504,32 @@ def get_valid_chorea(y):
     return torch.unsqueeze(torch.sum(y[:, :10], dim=1)==1, axis=-1)
 
 def calc_gait_and_chorea_acc(true_y, pred_y):
-    pred_y_gait = get_gait(pred_y,is_pred=True)
-    pred_y_chorea = get_chorea(pred_y,is_pred=True)
-    true_y_gait = get_gait(true_y, is_pred=False)
-    true_y_chorea = get_chorea(true_y, is_pred=False)
-    valid_chorea = get_valid_chorea(true_y)
+    if task == 'segmentation':
+        gait_pred = torch.argmax(pred_y[:, 0:2, :], axis=1)
+        gait_valid = true_y[:, :, 2]
+        gait_label = true_y[:, :, 0]
+        gait_match = (gait_label == gait_pred) * gait_valid
+        val_acc_gait = torch.sum(gait_match) / (torch.sum(gait_valid) + 1e-5)
 
-    pred_gait = torch.argmax(pred_y_gait, dim=1)
-    pred_chorea = torch.argmax(valid_chorea*pred_y_chorea, dim=1)
-    true_gait = torch.argmax(true_y_gait, dim=1)
-    true_chorea = torch.argmax(valid_chorea*true_y_chorea, dim=1)
-    val_acc_gait = torch.sum(pred_gait == true_gait)
-    val_acc_chorea = torch.sum(pred_chorea == true_chorea) - torch.sum(torch.logical_not(valid_chorea))
-    val_acc_gait = val_acc_gait/(list(pred_y.size())[0])
-    val_acc_chorea = val_acc_chorea/(torch.sum(valid_chorea)+1e-7)
-    return val_acc_gait, val_acc_chorea
+        chorea_pred = torch.argmax(pred_y[:, 2:7, :], axis=1)
+        chorea_valid = true_y[:, :, 3]
+        chorea_label = true_y[:, :, 1]
+        chorea_match = (chorea_label == chorea_pred) * chorea_valid
+        val_acc_chorea = torch.sum(chorea_match) / (torch.sum(chorea_valid) + 1e-5)
+        return val_acc_gait, val_acc_chorea
+    else:
+        pred_y_gait = get_gait(pred_y,is_pred=True)
+        pred_y_chorea = get_chorea(pred_y,is_pred=True)
+        true_y_gait = get_gait(true_y, is_pred=False)
+        true_y_chorea = get_chorea(true_y, is_pred=False)
+        valid_chorea = get_valid_chorea(true_y)
+
+        pred_gait = torch.argmax(pred_y_gait, dim=1)
+        pred_chorea = torch.argmax(valid_chorea*pred_y_chorea, dim=1)
+        true_gait = torch.argmax(true_y_gait, dim=1)
+        true_chorea = torch.argmax(valid_chorea*true_y_chorea, dim=1)
+        val_acc_gait = torch.sum(pred_gait == true_gait)
+        val_acc_chorea = torch.sum(pred_chorea == true_chorea) - torch.sum(torch.logical_not(valid_chorea))
+        val_acc_gait = val_acc_gait/(list(pred_y.size())[0])
+        val_acc_chorea = val_acc_chorea/(torch.sum(valid_chorea)+1e-7)
+        return val_acc_gait, val_acc_chorea

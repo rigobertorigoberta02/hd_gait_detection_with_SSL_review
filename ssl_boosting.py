@@ -18,14 +18,15 @@ from imblearn.over_sampling import SMOTE
 
 
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
-VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/including_only_ws_sub'
-n_estimators = 1
+VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/classification_new_resample_method'
+n_estimators = 0
 learning_rate = 0.5
 
 is_multi_label = True
 wandb_flag = False
 TRAIN_MODE = True
 EVAL_MODE = False
+model_type = 'classification'
 
 class GaitChoreaBaseEstimator(BaseEstimator, RegressorMixin):
     def __init__(self, 
@@ -58,6 +59,7 @@ class GaitChoreaBaseEstimator(BaseEstimator, RegressorMixin):
                        train_loader, 
                        val_loader, 
                        self.device, 
+                       model_type=model_type,
                        class_weights=None, 
                        weights_path=self.weights_path,
                        wandb_flag=False, 
@@ -84,7 +86,7 @@ class GaitChoreaBaseEstimator(BaseEstimator, RegressorMixin):
         return y_logits
 
     def _get_model(self, pretrained):
-        return sslmodel.get_sslnet(tag=self.repo_tag, pretrained=pretrained, num_classes=7)
+        return sslmodel.get_sslnet(tag=self.repo_tag, pretrained=pretrained, num_classes=7,model_type=model_type)
     
 
 def train_multiclass(X_train, y_train, X_test=None, y_test=None, batch_size=64, device='cpu', weights_path=''):
@@ -180,16 +182,24 @@ def log_softmax(y_pred):
 def get_valid_chorea(y_train):
     return np.sum(y_train[:,:10], axis=1, keepdims=True)
 
-def get_scores_for_gait_detection(y_true,y_pred):
-    pred_y_gait = sslmodel.get_gait(y_pred,is_pred=True)   
-    gait_labels = sslmodel.get_gait(y_true,is_pred=False)
+def get_scores_for_gait_detection(y_true,y_pred,model_type):
+    if model_type=='classification':
+        pred_y_gait = sslmodel.get_gait(torch.Tensor(y_pred),is_pred=True)   
+        gait_labels = sslmodel.get_gait(torch.Tensor(y_true),is_pred=False)
+    elif model_type=='segmentation':
+        pred_y_gait = y_pred[:, 0:2, :]
+        gait_labels = y_true[:, :, 0]
     gait_predictions = np.argmax(pred_y_gait,axis=1)
     gait_predictions_logits = pred_y_gait
     return gait_predictions,gait_predictions_logits,gait_labels
 
-def get_scores_for_chorea_detection(y_true,y_pred):
-    pred_y_chorea = sslmodel.get_chorea(y_pred, is_pred=True)   
-    chorea_labels = sslmodel.get_chorea(y_true, is_pred=False)
+def get_scores_for_chorea_detection(y_true,y_pred,model_type):
+    if model_type=='classification':
+        pred_y_chorea = sslmodel.get_chorea(torch.Tensor(y_pred), is_pred=True)   
+        chorea_labels = sslmodel.get_chorea(torch.Tensor(y_true), is_pred=False)
+    elif model_type=='segmentation':
+        pred_y_chorea = y_pred[:, 2:7, :]   
+        chorea_labels = y_true[:, :, 1]
     chorea_predictions = np.argmax(pred_y_chorea,axis=1)
     chorea_predictions_logits = pred_y_chorea
     return chorea_predictions,chorea_predictions_logits,chorea_labels
@@ -197,20 +207,38 @@ def get_scores_for_chorea_detection(y_true,y_pred):
 
 def main():
     if TRAIN_MODE:
-        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_including_only_ws_sub.pt')
+        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_ccalssification_labels_new_resampling_method.pt')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         num_class = 10
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_including_only_ws_ptients.npz')
+        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_calssification_labels_new_resampling_method.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
-        win_labels = input_file['gait_label_chorea_comb']
+        
         win_subjects = groups =input_file['arr_2']
         win_shift = input_file['win_shift_all_sub']
-        
-        one_hot_labels = np.zeros((len(win_labels), num_class+2), dtype=int) # adding to extra dummies for no chorea
-        one_hot_labels[np.arange(len(win_labels)), win_labels.squeeze().astype(int)] = 1
+        if model_type == 'classification':
+            win_labels = input_file['gait_label_chorea_comb']
+            one_hot_labels = np.zeros((len(win_labels), num_class+2), dtype=int) # adding to extra dummies for no chorea
+            one_hot_labels[np.arange(len(win_labels)), win_labels.squeeze().astype(int)] = 1
+            win_labels_data = one_hot_labels
+        elif model_type == 'segmentation':
+            win_chorea = input_file['win_chorea_all_sub']
+            win_labels = input_file['win_labels_all_sub']
+            num_gait_class = 2  # 0 for non-walking, 1 for walking
+            num_chorea_levels = 5  # 0 to 4
+            win_shift = np.mean(win_shift, axis=-1)
+
+# Convert to one-hot representation
+            # one_hot_gait_class = np.eye(num_gait_class)[np.maximum(win_labels,0).astype(int)]
+            # one_hot_chorea_level = np.eye(num_chorea_levels)[np.maximum(win_chorea,0).astype(int)]  
+            # valid_gait = np.expand_dims(win_labels>=0,axis=-1)
+            # valid_chorea =np.expand_dims(win_chorea>=0,axis=-1)
+            # win_labels_data = np.concatenate([one_hot_gait_class,one_hot_chorea_level,valid_gait,valid_chorea], axis=-1)
+            win_labels_data = np.stack([np.maximum(win_labels,0), np.maximum(win_chorea, 0), win_labels>=0, win_chorea>=0], axis=-1)
+            
+
         X_train = win_acc_data
-        y_train = one_hot_labels
+        
         fold = 0
         gait_predictions_all_folds = []
         gait_predictions_logits_all_folds = []
@@ -219,6 +247,7 @@ def main():
         chorea_predictions_logits_all_folds = []
         chorea_labels_all_folds = []
         valid_chorea_all_folds = []
+        valid_gait_all_folds = []
 
         cv_test_idxs_all_folds = []
         cv_train_idxs_all_folds = []
@@ -231,50 +260,35 @@ def main():
                 wandb.config.update({'n_estimators':n_estimators, 'boosting_learning_rate': learning_rate})
                 run_name = f'experiment_{run_num}_fold_{fold}'
                 wandb.run.name = run_name
-            
             test_idxs = (test_idxs[0][np.where(win_shift[test_idxs[0]]==0)[0]],) # remove shift != 0 from test
             X_train = win_acc_data[train_idxs]
             X_test = win_acc_data[test_idxs]
-            y_train = one_hot_labels[train_idxs]
-            y_test = one_hot_labels[test_idxs]
-            
-            '''
-            ## duplicate samples of chorea levels 2-4
-            ind_high = np.where(np.sum(y_train[:,4:10],axis=1)>0)[0]
-            num_rep = 5
-            add_noise = True
-            for i in ind_high:
-                y_train = np.concatenate([y_train,np.repeat(y_train[i:i+1,:],num_rep,axis=0)],axis=0)
-                repeat = np.repeat(X_train[i:i+1,:],num_rep,axis=0)
-                if add_noise:
-                    win = X_train[i:i+1,:]
-                    std = np.std(win, axis=1, keepdims=True)
-                    noise = np.random.randn(*repeat.shape) * std * 0.1
-                else:
-                    noise = 0
-                X_train = np.concatenate([X_train,repeat + noise],axis=0)
-            permutation_indices = np.random.permutation(len(X_train))
-            X_train = X_train[permutation_indices]
-            y_train = y_train[permutation_indices]
-            '''
+            y_train = win_labels_data[train_idxs]
+            y_test = win_labels_data[test_idxs]
 
            
             cv_test_idxs = test_idxs
             cv_train_idxs = train_idxs
 
             estimators = train_multiclass(X_train, y_train, X_test, y_test, batch_size=64, device=device, weights_path=weights_path)
-            
             y_test_pred = predict_boosting(X_test,estimators)
-            gait_predictions,gait_predictions_logits,gait_labels = get_scores_for_gait_detection(torch.Tensor(y_test), torch.Tensor(y_test_pred))
-            chorea_predictions,chorea_predictions_logits,chorea_labels = get_scores_for_chorea_detection(torch.Tensor(y_test), torch.Tensor(y_test_pred))
-            valid_chorea = get_valid_chorea(y_test)
+            gait_predictions,gait_predictions_logits,gait_labels = get_scores_for_gait_detection(y_test, y_test_pred, model_type)
+            chorea_predictions,chorea_predictions_logits,chorea_labels = get_scores_for_chorea_detection(y_test, y_test_pred, model_type)
+            if model_type == 'classification':
+                valid_chorea = get_valid_chorea(y_test)
+                valid_gait = None
+            if model_type == 'segmentation':
+                valid_chorea = y_test[:, :, 3]
+                valid_gait = y_test[:, :, 2]
+                
             test_acc_gait, test_acc_chorea = sslmodel.calc_gait_and_chorea_acc(torch.Tensor(y_test), torch.Tensor(y_test_pred))
             fold_index = len(gait_predictions_all_folds)
-            generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, fold_index)
+            generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index)
             
             gait_predictions_all_folds.append(gait_predictions)
             gait_predictions_logits_all_folds.append(gait_predictions_logits)
             gait_labels_all_folds.append(gait_labels)
+            valid_gait_all_folds.append(valid_gait)
 
             chorea_predictions_all_folds.append(chorea_predictions)
             chorea_predictions_logits_all_folds.append(chorea_predictions_logits)
@@ -289,17 +303,23 @@ def main():
                 run.finish()
             
             fold+=1
-        
-        gait_predictions_all_folds = torch.cat(gait_predictions_all_folds)
-        gait_predictions_logits_all_folds = torch.cat(gait_predictions_logits_all_folds)  
-        gait_labels_all_folds = torch.cat(gait_labels_all_folds)
-
-        chorea_predictions_all_folds = torch.cat(chorea_predictions_all_folds)
-        chorea_predictions_logits_all_folds = torch.cat(chorea_predictions_logits_all_folds)
-        chorea_labels_all_folds = torch.cat(chorea_labels_all_folds)
+        if model_type == 'segmentation':
+            cat_func = np.concatenate
+        else:
+            cat_func = torch.cat
+        gait_predictions_all_folds = cat_func(gait_predictions_all_folds)
+        gait_predictions_logits_all_folds = cat_func(gait_predictions_logits_all_folds)  
+        gait_labels_all_folds = cat_func(gait_labels_all_folds)
+        if model_type == 'segmentation':
+            valid_gait_all_folds = np.concatenate(valid_gait_all_folds)
+        else:
+            valid_gait_all_folds = None
+        chorea_predictions_all_folds = cat_func(chorea_predictions_all_folds)
+        chorea_predictions_logits_all_folds = cat_func(chorea_predictions_logits_all_folds)
+        chorea_labels_all_folds = cat_func(chorea_labels_all_folds)
         valid_chorea_all_folds = np.concatenate(valid_chorea_all_folds)
 
-        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_including_only_ws_sub.npz'),
+        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_calssification_labels_new_resampling_method.npz'),
                     gait_predictions_all_folds=gait_predictions_all_folds,
                     gait_predictions_logits_all_folds=gait_predictions_logits_all_folds,
                     gait_labels_all_folds=gait_labels_all_folds,
@@ -314,6 +334,7 @@ def main():
                                                 chorea_predictions_all_folds, 
                                                 chorea_labels_all_folds, 
                                                 valid_chorea_all_folds, 
+                                                valid_gait_all_folds,
                                                 fold_index='all')
     
     if EVAL_MODE:
@@ -329,7 +350,7 @@ def main():
         cv_test_idxs_all_folds = output_file['cv_test_idxs_all_folds']
         # debug start
         cv_test_idxs_all_folds_flat = np.concatenate([cv_test_idxs_all_folds[i][0] for i in range(len(cv_test_idxs_all_folds))])
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_10sec_all_shifted_win_std_bandpass_walk_th_corrected_labels.npz')
+        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         win_video_time = input_file['win_video_time_all_sub']
@@ -356,25 +377,41 @@ def main():
                                                 valid_chorea_all_folds[0], 
                                                 fold_index='all')
 
-def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, fold_index):
+def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index):
 
-    gait_labels_ind = torch.argmax(gait_labels, dim=-1)
-    chorea_labels_ind = torch.argmax(chorea_labels, dim=-1)
+    if model_type == 'segmentation':
+        gait_predictions, gait_labels_ind, chorea_labels_ind, valid_chorea = windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait)
+    else:
+        gait_labels_ind = torch.argmax(gait_labels, dim=-1)
+        chorea_labels_ind = torch.argmax(chorea_labels, dim=-1)
     for is_valid in [0, 1]:
         valid_ind = np.where(valid_chorea == is_valid)[0]
         if is_valid:
-            continue
             for chorea_level in np.unique(chorea_labels_ind):
                 indices = np.where((chorea_labels_ind==chorea_level).flatten() * (valid_chorea == is_valid).flatten())[0]
                 gait_predictions_sel = gait_predictions[indices]
                 gait_labels_sel = gait_labels_ind[indices]
-                confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'{chorea_level}')
+                if len(gait_labels_sel) > 0:
+                    confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'{chorea_level}')
         else:
             gait_predictions_sel = gait_predictions[valid_ind]
             gait_labels_sel = gait_labels_ind[valid_ind]
             confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'no_valid_chorea')
 
-
+def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait):
+    valid_gait_label = (gait_labels==1) * valid_gait
+    valid_not_gait_label = (gait_labels==0) * valid_gait
+    gait_windows = np.mean(valid_gait_label, axis=-1) > 0.6
+    not_gait_windows = np.mean(valid_not_gait_label, axis=-1) > 0.7
+    valid_indows = np.logical_or(gait_windows, not_gait_windows)
+    indices = np.where(valid_indows)[0]
+    new_gait_prediction = np.mean(gait_predictions[indices, :], axis=-1) > 0.5
+    new_giat_labels = gait_windows[indices]
+    new_valid_chorea = np.mean(valid_chorea[indices, :], axis=-1) > 0.5
+    new_chorea_labels = np.round(np.sum(chorea_labels[indices, :] * valid_chorea[indices, :], axis=-1)/(np.sum(valid_chorea[indices, :], axis=-1)+1e-6))
+    new_chorea_labels = np.ceil(np.sum(chorea_labels[indices, :] * valid_chorea[indices, :], axis=-1)/(np.sum(valid_chorea[indices, :], axis=-1)+1e-6))
+    return new_gait_prediction, new_giat_labels, new_chorea_labels, new_valid_chorea
+    
 
 def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
     cm = metrics.confusion_matrix(labels, predictions) 

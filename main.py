@@ -61,6 +61,12 @@ parser.add_argument(
     default=False,
     help='if true log to wandb')
 
+parser.add_argument(
+    '--model-type',
+    type=str,
+    default='segmentation',
+    help='specify if segmentation or classification')
+
 
 
 args = parser.parse_args()
@@ -86,7 +92,10 @@ def main():
     if args.preprocess_mode:
         #iterate over subjects and preprocess the data
         win_data_all_sub = np.empty((0,3,WINDOW_SIZE)) 
-        win_labels_all_sub = win_subjects = all_subjects = win_chorea_all_sub = win_shift_all_sub = np.empty((0,1))
+        if args.model_type == 'classification':
+            win_labels_all_sub = win_subjects = all_subjects = win_chorea_all_sub = win_shift_all_sub = np.empty((0,1))
+        elif  args.model_type == 'segmentation':
+             win_labels_all_sub = win_subjects = all_subjects = win_chorea_all_sub = win_shift_all_sub = np.empty((0,WINDOW_SIZE))
         StdIndex_all = inclusion_idx = original_data_len = np.empty((0,))
         win_video_time_all_sub = np.empty((0,1))
         NumWin = []
@@ -99,7 +108,9 @@ def main():
                     continue
             if args.cohort == 'hd':
                 if 'TCCO' in file:
-                    continue  
+                    continue 
+                if 'WS' in file:
+                    continue   
                 else:
                     data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
             acc_data = data_file['arr_0'].astype('float')
@@ -107,10 +118,10 @@ def main():
             chorea = data_file['arr_2']
             video_time = data_file['arr_3']
             subject_name = file.split('.')[0]
-            subject_id = np.tile(subject_name,len(labels)).reshape(-1, 1)
-            all_subjects = np.append(all_subjects,subject_id,axis=0)
+            # subject_id = np.tile(subject_name,len(labels)).reshape(-1, 1)
+            # all_subjects = np.append(all_subjects,subject_id,axis=0)
 
-
+            
             ## apply moving standard deviation 
             #data_std = preprocessing.movingstd(data=acc_data,window_size=3*SRC_SAMPLE_RATE)
             # data_std = preprocessing.movingstd(data=acc_data,window_size=WINDOW_SIZE)
@@ -130,7 +141,7 @@ def main():
 
             ## deivide data and labels to fixed windows
             data, labels, chorea, video_time, shift, NumWinSub = preprocessing.data_windowing(data=acc_data, labels=labels, chorea=chorea, video_time=video_time, window_size = WINDOW_SIZE, window_overlap=WINDOW_OVERLAP,
-                                                                                std_th=STD_THRESH)
+                                                                                std_th=STD_THRESH,model_type=args.model_type)
             # Concat the data and labels of the different subjects
             win_data_all_sub = np.append(win_data_all_sub, data, axis=0)
             win_labels_all_sub = np.append(win_labels_all_sub, labels, axis=0)
