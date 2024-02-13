@@ -173,7 +173,7 @@ def main():
                 pickle.dump(NumWinSub, outputFile)
          
            '''
-        # ipdb.set_trace()
+        ipdb.set_trace()
         # Save the data, labels and groups
         res = {'win_data_all_sub': win_data_all_sub,
                'win_labels_all_sub': win_labels_all_sub,

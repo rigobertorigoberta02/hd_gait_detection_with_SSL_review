@@ -18,15 +18,16 @@ from imblearn.over_sampling import SMOTE
 
 
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
-VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/classification_new_resample_method'
+VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/segmentation_val'
 n_estimators = 0
 learning_rate = 0.5
 
 is_multi_label = True
 wandb_flag = False
-TRAIN_MODE = True
-EVAL_MODE = False
-model_type = 'classification'
+TRAIN_MODE = False
+EVAL_MODE = True
+ILLUSTRATE_RESULTS = False
+model_type = 'segmentation' # 'classification' or 'segmentation'
 
 class GaitChoreaBaseEstimator(BaseEstimator, RegressorMixin):
     def __init__(self, 
@@ -152,7 +153,6 @@ def predict_boosting(x,estimators):
     return y_pred
 
 
-
 def calc_gradient(y_pred,y_train):
     y_train_tensor = torch.Tensor(y_train)
     y_pred_tensor = torch.Tensor(y_pred)
@@ -210,7 +210,7 @@ def main():
         weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_ccalssification_labels_new_resampling_method.pt')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         num_class = 10
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_calssification_labels_new_resampling_method.npz')
+        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         
@@ -319,16 +319,6 @@ def main():
         chorea_labels_all_folds = cat_func(chorea_labels_all_folds)
         valid_chorea_all_folds = np.concatenate(valid_chorea_all_folds)
 
-        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_calssification_labels_new_resampling_method.npz'),
-                    gait_predictions_all_folds=gait_predictions_all_folds,
-                    gait_predictions_logits_all_folds=gait_predictions_logits_all_folds,
-                    gait_labels_all_folds=gait_labels_all_folds,
-                    chorea_predictions_all_folds=chorea_predictions_all_folds,
-                    chorea_predictions_logits_all_folds=chorea_predictions_logits_all_folds,
-                    chorea_labels_all_folds=chorea_labels_all_folds,
-                    valid_chorea_all_folds=valid_chorea_all_folds,
-                    win_subjects=win_subjects, 
-                    cv_test_idxs_all_folds=cv_test_idxs_all_folds)
         generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds, 
                                                 gait_labels_all_folds, 
                                                 chorea_predictions_all_folds, 
@@ -336,9 +326,27 @@ def main():
                                                 valid_chorea_all_folds, 
                                                 valid_gait_all_folds,
                                                 fold_index='all')
+        
+        illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_predictions_all_folds, gait_labels_all_folds,
+                       chorea_predictions_all_folds, chorea_labels_all_folds, valid_chorea_all_folds, valid_gait_all_folds)
+
+        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_segmentation_validation.npz'),
+                    gait_predictions_all_folds=gait_predictions_all_folds,
+                    gait_predictions_logits_all_folds=gait_predictions_logits_all_folds,
+                    gait_labels_all_folds=gait_labels_all_folds,
+                    chorea_predictions_all_folds=chorea_predictions_all_folds,
+                    chorea_predictions_logits_all_folds=chorea_predictions_logits_all_folds,
+                    chorea_labels_all_folds=chorea_labels_all_folds,
+                    valid_chorea_all_folds=valid_chorea_all_folds,
+                    valid_gait_all_folds=valid_gait_all_folds,
+                    win_subjects=win_subjects, 
+                    cv_test_idxs_all_folds=cv_test_idxs_all_folds)
+        
+        
+        ipdb.set_trace()
     
     if EVAL_MODE:
-        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_shifted_win_trn_std_bandpass_10sec_walk_th.npz'),allow_pickle=True)
+        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_segmentation_validation.npz'),allow_pickle=True)
         gait_predictions_all_folds = output_file['gait_predictions_all_folds'],
         gait_predictions_logits_all_folds = output_file['gait_predictions_logits_all_folds'],
         gait_labels_all_folds = output_file['gait_labels_all_folds'],
@@ -346,6 +354,7 @@ def main():
         chorea_predictions_logits_all_folds = output_file['chorea_predictions_logits_all_folds'],
         chorea_labels_all_folds = output_file['chorea_labels_all_folds'],
         valid_chorea_all_folds = output_file['valid_chorea_all_folds'],
+        valid_gait_all_folds = output_file['valid_gait_all_folds'],
         win_subjects = output_file['win_subjects'], 
         cv_test_idxs_all_folds = output_file['cv_test_idxs_all_folds']
         # debug start
@@ -355,6 +364,30 @@ def main():
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         win_video_time = input_file['win_video_time_all_sub']
         
+        if ILLUSTRATE_RESULTS:
+            illustrate_results(cv_test_idxs_all_folds, win_subjects[0], win_acc_data, gait_predictions_all_folds[0], gait_labels_all_folds[0],
+                        chorea_predictions_all_folds[0], chorea_labels_all_folds[0], valid_chorea_all_folds[0], valid_gait_all_folds[0],win_video_time)
+        
+        generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
+                                                gait_labels_all_folds[0], 
+                                                chorea_predictions_all_folds[0], 
+                                                chorea_labels_all_folds[0], 
+                                                valid_chorea_all_folds[0],
+                                                valid_gait_all_folds[0], 
+                                                fold_index='all',
+                                                analysis_type='per_pixel')
+        
+        
+        generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
+                                                gait_labels_all_folds[0], 
+                                                chorea_predictions_all_folds[0], 
+                                                chorea_labels_all_folds[0], 
+                                                valid_chorea_all_folds[0],
+                                                valid_gait_all_folds[0], 
+                                                fold_index='all',
+                                                analysis_type='per_window')
+        
+        ## error analysis per chorea level
         lvl3 = np.where(np.logical_and(np.logical_and(gait_predictions_all_folds[0]==0,valid_chorea_all_folds[0].flatten()==1), np.logical_and(np.argmax(chorea_labels_all_folds[0], axis=1)==3, np.argmax(gait_labels_all_folds[0], axis=1)==1)))[0]
         lvl3_index = cv_test_idxs_all_folds_flat[lvl3]
         lvl3_win = win_acc_data[lvl3_index]
@@ -370,17 +403,49 @@ def main():
             plt.close('all')
         
         # debug end
-        generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
-                                                torch.Tensor(gait_labels_all_folds[0]), 
-                                                chorea_predictions_all_folds[0], 
-                                                torch.Tensor(chorea_labels_all_folds[0]), 
-                                                valid_chorea_all_folds[0], 
-                                                fold_index='all')
+        
 
-def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index):
+def illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_predictions_all_folds, gait_labels_all_folds,
+                       chorea_predictions_all_folds, chorea_labels_all_folds, valid_chorea_all_folds, valid_gait_all_folds,win_video_time):
+
+    for fold_num, fold_ind in enumerate(cv_test_idxs_all_folds):
+        for index_in_fold, ind in enumerate(fold_ind[0]):
+            acc_data = win_acc_data[ind]
+            subject = win_subjects[ind]
+            video_time = win_video_time[ind]
+            pred = gait_predictions_all_folds[ind]
+            label = gait_labels_all_folds[ind]
+            chorea_label = chorea_labels_all_folds[ind]
+            valid_gait = valid_gait_all_folds[ind]
+            acc_power = np.sqrt(np.mean(acc_data**2, axis=-1))
+            acc_power_norm = acc_power/np.max(acc_power)
+            plt.plot(acc_power_norm)
+            plt.plot(label*0.9)
+            plt.plot(pred)
+            plt.plot(valid_gait)
+            walking_ratio = np.sum(label*valid_gait)/(np.sum(valid_gait) + 1e-6)
+            agreement_ratio = np.sum(np.logical_xor(pred, label)*valid_gait)/(np.sum(valid_gait) + 1e-6)
+            plt.legend(['acc', 'label', 'pred', 'valid_gait'])
+            plt.title(f'agreement ratio {agreement_ratio:.2f}')
+            path_to_save = os.path.join(VIZUALIZE_DIR, "segmentation_visualize", f'{ind}_{subject}_{walking_ratio:.2f}_time_in_video_{video_time[0]:.2f}.jpg')
+            print(f'saving {path_to_save}')
+            plt.savefig(path_to_save)
+            plt.close("all")
+
+
+
+def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index,analysis_type='per_pixel'):
 
     if model_type == 'segmentation':
-        gait_predictions, gait_labels_ind, chorea_labels_ind, valid_chorea = windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait)
+        if analysis_type == 'per_window':
+            gait_predictions, gait_labels_ind, chorea_labels_ind, valid_chorea = windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait)
+        if analysis_type == 'per_pixel':
+            valid_gait_f = valid_gait.flatten()
+            valid_gait_ind = np.where(valid_gait_f)[0]
+            gait_predictions = gait_predictions.flatten()[valid_gait_ind]
+            gait_labels_ind = gait_labels.flatten()[valid_gait_ind]
+            chorea_labels_ind = chorea_labels.flatten()[valid_gait_ind]
+            valid_chorea = valid_chorea.flatten()[valid_gait_ind]
     else:
         gait_labels_ind = torch.argmax(gait_labels, dim=-1)
         chorea_labels_ind = torch.argmax(chorea_labels, dim=-1)
@@ -392,10 +457,18 @@ def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chor
                 gait_predictions_sel = gait_predictions[indices]
                 gait_labels_sel = gait_labels_ind[indices]
                 if len(gait_labels_sel) > 0:
-                    confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'{chorea_level}')
+                    if analysis_type == 'per_pixel':
+                        prefix2=f'{chorea_level}_per_pixel'
+                    else:
+                        prefix2=f'{chorea_level}'
+                    confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=prefix2)
         else:
             gait_predictions_sel = gait_predictions[valid_ind]
             gait_labels_sel = gait_labels_ind[valid_ind]
+            if analysis_type == 'per_pixel':
+                prefix2=f'no_valid_chorea_per_pixel'
+            else:
+                prefix2=f'no_valid_chorea'
             confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'no_valid_chorea')
 
 def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait):

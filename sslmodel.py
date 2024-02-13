@@ -19,7 +19,7 @@ import segmentation_model
 verbose = False
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
-task = 'classification'
+task = 'segmentation'  # 'classification' or 'segmentation'
 
 
 class RandomSwitchAxis:
@@ -460,7 +460,6 @@ def get_gait(y, is_logits=False, is_pred=False):
         ipdb.set_trace()
     #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
 def get_chorea(y, is_logits=False,is_pred=True):
-    
     try:
         if is_logits:
             y = torch.sigmoid(y)
@@ -487,6 +486,7 @@ def get_gait_grad(x, y, is_multi_label=True):
         return  y_gait_repeat - x_gait_repeat
 
 def get_chorea_grad(x, y, is_multi_label=True):
+    ipdb.set_trace()
     y_chorea = get_chorea(y)
     valid_chorea = get_valid_chorea(y)
     x_chorea = get_chorea(x)
