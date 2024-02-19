@@ -17,8 +17,8 @@ from imblearn.over_sampling import SMOTE
 
 
 
-OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
-VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/segmentation_val'
+OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/output_files'
+VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/segmentation_val/confusion_matrix_by_parts'
 n_estimators = 0
 learning_rate = 0.5
 
@@ -368,14 +368,31 @@ def main():
             illustrate_results(cv_test_idxs_all_folds, win_subjects[0], win_acc_data, gait_predictions_all_folds[0], gait_labels_all_folds[0],
                         chorea_predictions_all_folds[0], chorea_labels_all_folds[0], valid_chorea_all_folds[0], valid_gait_all_folds[0],win_video_time)
         
-        generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
-                                                gait_labels_all_folds[0], 
-                                                chorea_predictions_all_folds[0], 
-                                                chorea_labels_all_folds[0], 
-                                                valid_chorea_all_folds[0],
-                                                valid_gait_all_folds[0], 
-                                                fold_index='all',
-                                                analysis_type='per_pixel')
+        all_recall_dict = {}
+        for i in range(5):
+            part_len = 300//5
+            part_start = i*part_len
+            part_end = (i+1)*part_len
+            recall_dict = generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0][:,part_start:part_end], 
+                                                    gait_labels_all_folds[0][:,part_start:part_end], 
+                                                    chorea_predictions_all_folds[0][:,part_start:part_end], 
+                                                    chorea_labels_all_folds[0][:,part_start:part_end], 
+                                                    valid_chorea_all_folds[0][:,part_start:part_end],
+                                                    valid_gait_all_folds[0][:,part_start:part_end], 
+                                                    fold_index='all',
+                                                    analysis_type='per_pixel',
+                                                    prefix=f'_part_{i}')
+            all_recall_dict.update(recall_dict)
+        for i in range(5):
+            recall = [all_recall_dict[f'{i}.0_per_pixel_part_{j}'] for j in range(5)]
+            print(recall)
+            plt.plot(np.array(recall))
+        plt.xlabel('part index')
+        plt.ylabel('recall score')
+        plt.legend(['chorea 0','chorea 1','chorea 2','chorea 3','chorea 4','chorea label not valid'])
+        plt.savefig(os.path.join(VIZUALIZE_DIR, 'recall_per_part.jpg'))
+        ipdb.set_trace()
+
         
         
         generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
@@ -423,9 +440,10 @@ def illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_
             plt.plot(label*0.9)
             plt.plot(pred)
             plt.plot(valid_gait)
+            plt.plot(chorea_label/4)
             walking_ratio = np.sum(label*valid_gait)/(np.sum(valid_gait) + 1e-6)
-            agreement_ratio = np.sum(np.logical_xor(pred, label)*valid_gait)/(np.sum(valid_gait) + 1e-6)
-            plt.legend(['acc', 'label', 'pred', 'valid_gait'])
+            agreement_ratio = np.sum((pred==label)*valid_gait)/(np.sum(valid_gait) + 1e-6)
+            plt.legend(['acc', 'label', 'pred', 'valid_gait','chorea_label'])
             plt.title(f'agreement ratio {agreement_ratio:.2f}')
             path_to_save = os.path.join(VIZUALIZE_DIR, "segmentation_visualize", f'{ind}_{subject}_{walking_ratio:.2f}_time_in_video_{video_time[0]:.2f}.jpg')
             print(f'saving {path_to_save}')
@@ -434,7 +452,7 @@ def illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_
 
 
 
-def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index,analysis_type='per_pixel'):
+def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chorea_predictions, chorea_labels, valid_chorea, valid_gait, fold_index,analysis_type='per_pixel', prefix=''):
 
     if model_type == 'segmentation':
         if analysis_type == 'per_window':
@@ -449,6 +467,7 @@ def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chor
     else:
         gait_labels_ind = torch.argmax(gait_labels, dim=-1)
         chorea_labels_ind = torch.argmax(chorea_labels, dim=-1)
+    recall_dict = {}
     for is_valid in [0, 1]:
         valid_ind = np.where(valid_chorea == is_valid)[0]
         if is_valid:
@@ -457,19 +476,23 @@ def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chor
                 gait_predictions_sel = gait_predictions[indices]
                 gait_labels_sel = gait_labels_ind[indices]
                 if len(gait_labels_sel) > 0:
+                    prefix1 = f'{fold_index}'
                     if analysis_type == 'per_pixel':
                         prefix2=f'{chorea_level}_per_pixel'
                     else:
                         prefix2=f'{chorea_level}'
-                    confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=prefix2)
+                    recall = confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=prefix1, prefix2=prefix2+prefix)
+                    recall_dict[prefix2+prefix] = recall
         else:
             gait_predictions_sel = gait_predictions[valid_ind]
             gait_labels_sel = gait_labels_ind[valid_ind]
+            prefix1 = f'{fold_index}'
             if analysis_type == 'per_pixel':
                 prefix2=f'no_valid_chorea_per_pixel'
             else:
                 prefix2=f'no_valid_chorea'
-            confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=f'{fold_index}', prefix2=f'no_valid_chorea')
+            recall_dict[prefix2+prefix] = confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=prefix1, prefix2=f'no_valid_chorea'+prefix)
+    return recall_dict
 
 def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait):
     valid_gait_label = (gait_labels==1) * valid_gait
@@ -488,6 +511,7 @@ def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_
 
 def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
     cm = metrics.confusion_matrix(labels, predictions) 
+    recall = cm[1,1] / (cm[1,0] + cm[1,1])
     class_labels = ["Non-Walking", "Walking"]
     #plt.figure(figsize=(12, 12))
     ax = sns.heatmap(cm, annot=True, cmap="Blues", fmt="d", cbar=False,
@@ -501,9 +525,10 @@ def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
 
     plt.xlabel("Predicted",{"fontsize":16})
     plt.ylabel("True",{"fontsize":16})
-    plt.title("Confusion Matrix")
+    plt.title(f"Confusion Matrix Recall:{recall:.2f}")
     plt.savefig(os.path.join(VIZUALIZE_DIR,f'confusion_matrix_{prefix1}_{prefix2}.png'))
     plt.close('all')
+    return recall
     
 def add_noise_to_window(window, noise_std):
     noise = np.random.randn(*window.shape) * noise_std
