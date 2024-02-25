@@ -16,18 +16,25 @@ from imblearn.over_sampling import SMOTE
 
 
 
-
+FILE_PREFIX = 'segmentation_without_edges_overlap'
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/output_files'
-VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/segmentation_val/confusion_matrix_by_parts'
+VIZUALIZE_DIR = f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/{FILE_PREFIX}'
+
 n_estimators = 0
 learning_rate = 0.5
 
 is_multi_label = True
 wandb_flag = False
-TRAIN_MODE = False
-EVAL_MODE = True
+TRAIN_MODE = True
+EVAL_MODE = False
 ILLUSTRATE_RESULTS = False
 model_type = 'segmentation' # 'classification' or 'segmentation'
+
+if not os.path.exists(VIZUALIZE_DIR):
+    os.makedirs(VIZUALIZE_DIR)
+    print(f"Directory '{VIZUALIZE_DIR}' created.")
+else:
+    print(f"Directory '{VIZUALIZE_DIR}' already exists.")
 
 class GaitChoreaBaseEstimator(BaseEstimator, RegressorMixin):
     def __init__(self, 
@@ -207,10 +214,10 @@ def get_scores_for_chorea_detection(y_true,y_pred,model_type):
 
 def main():
     if TRAIN_MODE:
-        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_ccalssification_labels_new_resampling_method.pt')
+        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_{FILE_PREFIX}.pt')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         num_class = 10
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
+        input_file = np.load(f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_{FILE_PREFIX}.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         
@@ -327,10 +334,8 @@ def main():
                                                 valid_gait_all_folds,
                                                 fold_index='all')
         
-        illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_predictions_all_folds, gait_labels_all_folds,
-                       chorea_predictions_all_folds, chorea_labels_all_folds, valid_chorea_all_folds, valid_gait_all_folds)
 
-        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_segmentation_validation.npz'),
+        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}.npz'),
                     gait_predictions_all_folds=gait_predictions_all_folds,
                     gait_predictions_logits_all_folds=gait_predictions_logits_all_folds,
                     gait_labels_all_folds=gait_labels_all_folds,
@@ -346,7 +351,7 @@ def main():
         ipdb.set_trace()
     
     if EVAL_MODE:
-        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_segmentation_validation.npz'),allow_pickle=True)
+        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}.npz'),allow_pickle=True)
         gait_predictions_all_folds = output_file['gait_predictions_all_folds'],
         gait_predictions_logits_all_folds = output_file['gait_predictions_logits_all_folds'],
         gait_labels_all_folds = output_file['gait_labels_all_folds'],
@@ -359,7 +364,7 @@ def main():
         cv_test_idxs_all_folds = output_file['cv_test_idxs_all_folds']
         # debug start
         cv_test_idxs_all_folds_flat = np.concatenate([cv_test_idxs_all_folds[i][0] for i in range(len(cv_test_idxs_all_folds))])
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
+        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_{FILE_PREFIX}.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         win_video_time = input_file['win_video_time_all_sub']
@@ -424,31 +429,33 @@ def main():
 
 def illustrate_results(cv_test_idxs_all_folds, win_subjects, win_acc_data, gait_predictions_all_folds, gait_labels_all_folds,
                        chorea_predictions_all_folds, chorea_labels_all_folds, valid_chorea_all_folds, valid_gait_all_folds,win_video_time):
-
-    for fold_num, fold_ind in enumerate(cv_test_idxs_all_folds):
-        for index_in_fold, ind in enumerate(fold_ind[0]):
-            acc_data = win_acc_data[ind]
-            subject = win_subjects[ind]
-            video_time = win_video_time[ind]
-            pred = gait_predictions_all_folds[ind]
-            label = gait_labels_all_folds[ind]
-            chorea_label = chorea_labels_all_folds[ind]
-            valid_gait = valid_gait_all_folds[ind]
-            acc_power = np.sqrt(np.mean(acc_data**2, axis=-1))
-            acc_power_norm = acc_power/np.max(acc_power)
-            plt.plot(acc_power_norm)
-            plt.plot(label*0.9)
-            plt.plot(pred)
-            plt.plot(valid_gait)
-            plt.plot(chorea_label/4)
-            walking_ratio = np.sum(label*valid_gait)/(np.sum(valid_gait) + 1e-6)
-            agreement_ratio = np.sum((pred==label)*valid_gait)/(np.sum(valid_gait) + 1e-6)
-            plt.legend(['acc', 'label', 'pred', 'valid_gait','chorea_label'])
-            plt.title(f'agreement ratio {agreement_ratio:.2f}')
-            path_to_save = os.path.join(VIZUALIZE_DIR, "segmentation_visualize", f'{ind}_{subject}_{walking_ratio:.2f}_time_in_video_{video_time[0]:.2f}.jpg')
-            print(f'saving {path_to_save}')
-            plt.savefig(path_to_save)
-            plt.close("all")
+    try:
+        for fold_num, fold_ind in enumerate(cv_test_idxs_all_folds):
+            for index_in_fold, ind in enumerate(fold_ind[0]):
+                acc_data = win_acc_data[ind]
+                subject = win_subjects[ind]
+                video_time = win_video_time[ind]
+                pred = gait_predictions_all_folds[ind]
+                label = gait_labels_all_folds[ind]
+                chorea_label = chorea_labels_all_folds[ind]
+                valid_gait = valid_gait_all_folds[ind]
+                acc_power = np.sqrt(np.mean(acc_data**2, axis=-1))
+                acc_power_norm = acc_power/np.max(acc_power)
+                plt.plot(acc_power_norm)
+                plt.plot(label*0.9)
+                plt.plot(pred)
+                plt.plot(valid_gait)
+                plt.plot(chorea_label/4)
+                walking_ratio = np.sum(label*valid_gait)/(np.sum(valid_gait) + 1e-6)
+                agreement_ratio = np.sum((pred==label)*valid_gait)/(np.sum(valid_gait) + 1e-6)
+                plt.legend(['acc', 'label', 'pred', 'valid_gait','chorea_label'])
+                plt.title(f'agreement ratio {agreement_ratio:.2f}')
+                path_to_save = os.path.join(VIZUALIZE_DIR, "segmentation_visualize", f'{ind}_{subject}_{walking_ratio:.2f}_time_in_video_{video_time[0]:.2f}.jpg')
+                print(f'saving {path_to_save}')
+                plt.savefig(path_to_save)
+                plt.close("all")
+    except:
+        ipdb.set_trace()
 
 
 
@@ -510,8 +517,13 @@ def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_
     
 
 def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
+    if len(labels) == 0:
+        return
     cm = metrics.confusion_matrix(labels, predictions) 
-    recall = cm[1,1] / (cm[1,0] + cm[1,1])
+    try:
+        recall = cm[1,1] / (cm[1,0] + cm[1,1])
+    except:
+        ipdb.set_trace()
     class_labels = ["Non-Walking", "Walking"]
     #plt.figure(figsize=(12, 12))
     ax = sns.heatmap(cm, annot=True, cmap="Blues", fmt="d", cbar=False,

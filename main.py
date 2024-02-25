@@ -83,7 +83,7 @@ VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/
 SRC_SAMPLE_RATE = int(100) #hz
 STD_THRESH = 0.05
 WINDOW_SIZE = int(30*10)
-WINDOW_OVERLAP = 0
+WINDOW_OVERLAP = int(30*4)
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -197,9 +197,13 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
     upper_limit = data.shape[0] // non_overlap * non_overlap
     # Remove the end of the signal
     # Use sliding windows to divide the data
-    for index,shift in enumerate(range(0,window_size,window_size//10)):
+    for index,shift in enumerate(range(0,non_overlap,non_overlap//10)):
         windowed_data = sliding_window_view(data, window_size, 0)[shift::non_overlap, :]
         windowed_labels = sliding_window_view(labels, window_size, 0)[shift::non_overlap].squeeze()
+        # excluding the begining and end 
+        windowed_labels = windowed_labels.copy()
+        windowed_labels[:,:60] = -9
+        windowed_labels[:,-60:] = -9
         windowed_chorea = sliding_window_view(chorea, window_size, 0)[shift::non_overlap].squeeze()
         windowed_video_time = sliding_window_view(video_time, window_size, 0)[shift::non_overlap].squeeze()
         windowed_data_power_norm = sliding_window_view(data_power_norm, window_size, 0)[shift::non_overlap].squeeze()
