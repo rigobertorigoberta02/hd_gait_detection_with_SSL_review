@@ -157,7 +157,7 @@ def labels_resample(labels,original_fs, target_fs):
 
     return np.array([labels[int(index)] for index in resample_index])
 
-def data_windowing(data, labels, chorea, video_time, window_size, window_overlap, std_th,model_type='segmentation'):
+def data_windowing(data, labels, chorea, video_time, window_size, window_overlap, std_th,model_type='segmentation', padding_type='triple_wind'):
     """
     Dividing the data into fixed-time windows
 
@@ -198,12 +198,14 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
     # Remove the end of the signal
     # Use sliding windows to divide the data
     for index,shift in enumerate(range(0,non_overlap,non_overlap//10)):
+        shift = 0
         windowed_data = sliding_window_view(data, window_size, 0)[shift::non_overlap, :]
         windowed_labels = sliding_window_view(labels, window_size, 0)[shift::non_overlap].squeeze()
-        # excluding the begining and end 
-        windowed_labels = windowed_labels.copy()
-        windowed_labels[:,:60] = -9
-        windowed_labels[:,-60:] = -9
+        if padding_type == 'without_edges':
+            # excluding the begining and end 
+            windowed_labels = windowed_labels.copy()
+            windowed_labels[:,:60] = -9
+            windowed_labels[:,-60:] = -9
         windowed_chorea = sliding_window_view(chorea, window_size, 0)[shift::non_overlap].squeeze()
         windowed_video_time = sliding_window_view(video_time, window_size, 0)[shift::non_overlap].squeeze()
         windowed_data_power_norm = sliding_window_view(data_power_norm, window_size, 0)[shift::non_overlap].squeeze()

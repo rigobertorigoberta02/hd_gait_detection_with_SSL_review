@@ -20,6 +20,8 @@ verbose = False
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
 task = 'segmentation'  # 'classification' or 'segmentation'
+padding_type = 'without_edges' #'triple_wind'
+
 
 
 class RandomSwitchAxis:
@@ -236,7 +238,7 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmen
                                        pretrained=pretrained, verbose=verbose)
     if model_type=='classification':
         return sslnet
-    seg_model = segmentation_model.SegModel(sslnet)
+    seg_model = segmentation_model.SegModel(sslnet, multi_windows=padding_type=='triple_wind')
     return seg_model
 
 
@@ -332,7 +334,7 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
             gait_valid = y[:, :, 2]
             chorea_valid = y[:, :, 3]
             gait_loss = _masked_cross_entropy(gait_labels, model_out[:,0:2,:], gait_valid)
-            chorea_loss = _masked_cross_entropy(chorea_labels, model_out[:,2:7,:], chorea_valid)
+            chorea_loss = 0#_masked_cross_entropy(chorea_labels, model_out[:,2:7,:], chorea_valid)
             return gait_loss + chorea_loss
         loss_fn = segmentaion_loss_fn
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))

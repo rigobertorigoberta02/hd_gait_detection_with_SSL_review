@@ -11,24 +11,27 @@ import wandb
 from sklearn import metrics
 import matplotlib.pyplot as plt
 import seaborn as sns
-from imblearn.over_sampling import SMOTE
+import json
 
 
 
 
-FILE_PREFIX = 'segmentation_without_edges_overlap'
+FILE_PREFIX = 'segmentation_triple_wind_no_shift' #segmentation_val' or'segmentation_without_edges_overlap' or 'segmentation_triple_wind_no_shift'
+GAIT_ONLY = False
+gait_only_prefix = "_gait_only" if GAIT_ONLY else ""
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/output_files'
-VIZUALIZE_DIR = f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/{FILE_PREFIX}'
+VIZUALIZE_DIR = f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/boosting/{FILE_PREFIX}'+gait_only_prefix+'_final'
+TRAIN_MODE = True
+EVAL_MODE = True
+ILLUSTRATE_RESULTS = False
+model_type = 'segmentation' # 'classification' or 'segmentation'
+padding_type = 'triple_wind' # 'no_padding' or 'triple_wind' or 'without_edges'
 
 n_estimators = 0
 learning_rate = 0.5
 
 is_multi_label = True
 wandb_flag = False
-TRAIN_MODE = True
-EVAL_MODE = False
-ILLUSTRATE_RESULTS = False
-model_type = 'segmentation' # 'classification' or 'segmentation'
 
 if not os.path.exists(VIZUALIZE_DIR):
     os.makedirs(VIZUALIZE_DIR)
@@ -214,7 +217,7 @@ def get_scores_for_chorea_detection(y_true,y_pred,model_type):
 
 def main():
     if TRAIN_MODE:
-        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_{FILE_PREFIX}.pt')
+        weights_path = os.path.join(OUTPUT_DIR,f'multiclass_weights_hd_only_boosting_{FILE_PREFIX}'+gait_only_prefix+'.pt')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         num_class = 10
         input_file = np.load(f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_{FILE_PREFIX}.npz')
@@ -259,6 +262,13 @@ def main():
         cv_test_idxs_all_folds = []
         cv_train_idxs_all_folds = []
         run_num = 30
+        if padding_type =='triple_wind':
+           left_wind = win_acc_data[0:-2:2]
+           mid_wind = win_acc_data[1:-1:2]
+           right_wind =win_acc_data[2::2] 
+           win_acc_data = np.concatenate([left_wind,mid_wind,right_wind],axis=1)
+           win_labels_data = win_labels_data[1:-1:2]
+           groups = groups[1:-1:2]
         for train_idxs, test_idxs in models_new.groupkfold(groups, n_splits=5): 
             if wandb_flag:
                 run = wandb.init(project='hd_gait_detection_with_ssl_boosting',
@@ -272,7 +282,6 @@ def main():
             X_test = win_acc_data[test_idxs]
             y_train = win_labels_data[train_idxs]
             y_test = win_labels_data[test_idxs]
-
            
             cv_test_idxs = test_idxs
             cv_train_idxs = train_idxs
@@ -335,7 +344,7 @@ def main():
                                                 fold_index='all')
         
 
-        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}.npz'),
+        np.savez(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}'+gait_only_prefix+'.npz'),
                     gait_predictions_all_folds=gait_predictions_all_folds,
                     gait_predictions_logits_all_folds=gait_predictions_logits_all_folds,
                     gait_labels_all_folds=gait_labels_all_folds,
@@ -351,7 +360,10 @@ def main():
         ipdb.set_trace()
     
     if EVAL_MODE:
-        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}.npz'),allow_pickle=True)
+        output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_{FILE_PREFIX}'+gait_only_prefix+'.npz'),allow_pickle=True)
+        
+        #output_file = np.load(os.path.join(OUTPUT_DIR, f'multiclass_separated_labels_predictions_and_logits_with_true_labels_and_subjects_hd_only_boosting_segmentation_validation.npz'),allow_pickle=True)
+
         gait_predictions_all_folds = output_file['gait_predictions_all_folds'],
         gait_predictions_logits_all_folds = output_file['gait_predictions_logits_all_folds'],
         gait_labels_all_folds = output_file['gait_labels_all_folds'],
@@ -364,15 +376,45 @@ def main():
         cv_test_idxs_all_folds = output_file['cv_test_idxs_all_folds']
         # debug start
         cv_test_idxs_all_folds_flat = np.concatenate([cv_test_idxs_all_folds[i][0] for i in range(len(cv_test_idxs_all_folds))])
-        input_file = np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_{FILE_PREFIX}.npz')
+        #input_file = np.load(f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_{FILE_PREFIX}.npz')
+        input_file = np.load(f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
         win_acc_data = input_file['arr_0']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         win_video_time = input_file['win_video_time_all_sub']
+      
+        auc_dict = auc_and_ci_per_chorea_lvl(gait_labels=gait_labels_all_folds[0],
+                                             gait_logits=gait_predictions_logits_all_folds[0],
+                                             valid_gait=valid_gait_all_folds[0],
+                                             valid_chorea=valid_chorea_all_folds[0],
+                                             chorea_labels=chorea_labels_all_folds[0],
+                                             analysis_type='per_pixel')
         
+        scores_file = os.path.join('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs','scores.json')
+
+        # New model configuration name
+        new_config_name = FILE_PREFIX+gait_only_prefix
+        update_scores_file(scores_file, new_config_name, auc_dict)
+        
+        
+
+        # Update scores file with new configuration and scores
+        
+        ipdb.set_trace()
+
         if ILLUSTRATE_RESULTS:
             illustrate_results(cv_test_idxs_all_folds, win_subjects[0], win_acc_data, gait_predictions_all_folds[0], gait_labels_all_folds[0],
                         chorea_predictions_all_folds[0], chorea_labels_all_folds[0], valid_chorea_all_folds[0], valid_gait_all_folds[0],win_video_time)
         
+        generate_confusion_matrix_per_chorea_lvl(gait_predictions_all_folds[0], 
+                                                gait_labels_all_folds[0], 
+                                                chorea_predictions_all_folds[0], 
+                                                chorea_labels_all_folds[0], 
+                                                valid_chorea_all_folds[0],
+                                                valid_gait_all_folds[0], 
+                                                fold_index='all',
+                                                analysis_type='per_pixel')
+        ipdb.set_trace()
+
         all_recall_dict = {}
         for i in range(5):
             part_len = 300//5
@@ -407,7 +449,7 @@ def main():
                                                 valid_chorea_all_folds[0],
                                                 valid_gait_all_folds[0], 
                                                 fold_index='all',
-                                                analysis_type='per_window')
+                                                analysis_type='per_pixel')
         
         ## error analysis per chorea level
         lvl3 = np.where(np.logical_and(np.logical_and(gait_predictions_all_folds[0]==0,valid_chorea_all_folds[0].flatten()==1), np.logical_and(np.argmax(chorea_labels_all_folds[0], axis=1)==3, np.argmax(gait_labels_all_folds[0], axis=1)==1)))[0]
@@ -501,19 +543,22 @@ def generate_confusion_matrix_per_chorea_lvl(gait_predictions, gait_labels, chor
             recall_dict[prefix2+prefix] = confusion_matrix(gait_labels_sel, gait_predictions_sel, prefix1=prefix1, prefix2=f'no_valid_chorea'+prefix)
     return recall_dict
 
-def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait):
+def windowing(gait_predictions, gait_labels, chorea_labels, valid_chorea, valid_gait,pred_or_prob='pred'):
     valid_gait_label = (gait_labels==1) * valid_gait
     valid_not_gait_label = (gait_labels==0) * valid_gait
     gait_windows = np.mean(valid_gait_label, axis=-1) > 0.6
     not_gait_windows = np.mean(valid_not_gait_label, axis=-1) > 0.7
     valid_indows = np.logical_or(gait_windows, not_gait_windows)
     indices = np.where(valid_indows)[0]
-    new_gait_prediction = np.mean(gait_predictions[indices, :], axis=-1) > 0.5
-    new_giat_labels = gait_windows[indices]
+    if pred_or_prob == 'pred':
+        new_gait_prediction = np.mean(gait_predictions[indices, :], axis=-1) > 0.5
+    else:
+        new_gait_prediction = np.mean(gait_predictions[indices, :], axis=-1)
+    new_gait_labels = gait_windows[indices]
     new_valid_chorea = np.mean(valid_chorea[indices, :], axis=-1) > 0.5
     new_chorea_labels = np.round(np.sum(chorea_labels[indices, :] * valid_chorea[indices, :], axis=-1)/(np.sum(valid_chorea[indices, :], axis=-1)+1e-6))
     new_chorea_labels = np.ceil(np.sum(chorea_labels[indices, :] * valid_chorea[indices, :], axis=-1)/(np.sum(valid_chorea[indices, :], axis=-1)+1e-6))
-    return new_gait_prediction, new_giat_labels, new_chorea_labels, new_valid_chorea
+    return new_gait_prediction, new_gait_labels, new_chorea_labels, new_valid_chorea
     
 
 def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
@@ -522,6 +567,8 @@ def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
     cm = metrics.confusion_matrix(labels, predictions) 
     try:
         recall = cm[1,1] / (cm[1,0] + cm[1,1])
+        precision = cm[1,1] / (cm[1,1] + cm[0,1]) if (cm[1,1] + cm[0,1]) > 0 else 0
+        f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     except:
         ipdb.set_trace()
     class_labels = ["Non-Walking", "Walking"]
@@ -537,11 +584,105 @@ def confusion_matrix(labels, predictions, prefix1='', prefix2=''):
 
     plt.xlabel("Predicted",{"fontsize":16})
     plt.ylabel("True",{"fontsize":16})
-    plt.title(f"Confusion Matrix Recall:{recall:.2f}")
+    plt.title(f"Confusion Matrix Recall:{recall:.2f},Precision:{precision:.2f},F1:{f1_score:.2f}")
     plt.savefig(os.path.join(VIZUALIZE_DIR,f'confusion_matrix_{prefix1}_{prefix2}.png'))
     plt.close('all')
     return recall
+
+def auc_and_ci(labels,probs):
     
+    # labels = labels.flatten()
+    # prediction_exp = np.exp(predictions)
+    # prob = prediction_exp[:,1,:] / np.sum(prediction_exp, axis=1)
+    # prob = prob.flatten()
+    # valid = valid.flatten()
+    # valid_labels = labels[valid==1]
+    # valid_prob = prob[valid==1]
+    Y = probs[labels==1]
+    X = probs[labels==0]
+    n_x = len(X)
+    n_y = len(Y)
+    Y_exp = np.expand_dims(Y,axis=0)
+    X_exp = np.expand_dims(X,axis=1)
+    ge = Y_exp > X_exp
+    eq = Y_exp == X_exp
+    theta = (np.sum(ge) + 0.5*np.sum(eq))/(n_x * n_y)
+    print(f"theta:{theta}")
+    q1 = np.sum((np.sum(ge, axis=1) + 0.5*np.sum(eq, axis=1))**2)/n_x/n_y**2
+    q2 = np.sum((np.sum(ge, axis=0) + 0.5*np.sum(eq, axis=0))**2)/n_y/n_x**2
+    print(f"Q1:{q1}, Q2:{q2}")
+    equal_prob = np.sum(eq)/(n_x * n_y)
+    var = 1/(n_y-1)/(n_x-1)*(theta*(1-theta) - 1/4*equal_prob + (n_y-1)*(q1-theta**2) + (n_x-1)*(q2-theta**2))
+    z=1.96
+    ci = z*np.sqrt(var)
+    print(f"var:{var}")
+
+    # compare to auc sklearn
+    sklearn_auc = metrics.roc_auc_score(labels, probs)
+    print(f"sklearn_auc:{sklearn_auc}")
+    return theta, ci
+
+def auc_and_ci_per_chorea_lvl(gait_logits, gait_labels, chorea_labels, valid_chorea, valid_gait,analysis_type='per_pixel'):
+    gait_logits_exp = np.exp(gait_logits)
+    if model_type == 'segmentation':
+        gait_prob = gait_logits_exp[:,1,:] / np.sum(gait_logits_exp, axis=1)
+        if analysis_type == 'per_window':
+            gait_prob, gait_labels_ind, chorea_labels_ind, valid_chorea = windowing(gait_prob, gait_labels, chorea_labels, valid_chorea, valid_gait)
+        if analysis_type == 'per_pixel':
+            valid_gait_f = valid_gait.flatten()
+            valid_gait_ind = np.where(valid_gait_f)[0]
+            gait_prob = gait_prob.flatten()[valid_gait_ind]
+            gait_labels_ind = gait_labels.flatten()[valid_gait_ind]
+            chorea_labels_ind = chorea_labels.flatten()[valid_gait_ind]
+            valid_chorea = valid_chorea.flatten()[valid_gait_ind]
+    else:
+        gait_prob = gait_logits_exp[:,1] / np.sum(gait_logits_exp, axis=1)
+        gait_labels_ind = torch.argmax(gait_labels, dim=-1)
+        chorea_labels_ind = torch.argmax(chorea_labels, dim=-1)
+    auc_dict = {}
+    for is_valid in [0, 1]:
+        valid_ind = np.where(valid_chorea == is_valid)[0]
+        if is_valid:
+            for chorea_level in np.unique(chorea_labels_ind):
+                indices = np.where((chorea_labels_ind==chorea_level).flatten() * (valid_chorea == is_valid).flatten())[0]
+                gait_prob_sel = gait_prob[indices]
+                gait_labels_sel = gait_labels_ind[indices]
+                if len(gait_labels_sel) > 0:
+                    if analysis_type == 'per_pixel':
+                        prefix2=f'{chorea_level}_per_pixel'
+                    else:
+                        prefix2=f'{chorea_level}'
+                    auc, ci = auc_and_ci(gait_labels_sel,gait_prob_sel) #change to logits
+                    auc_dict[prefix2] = {'auc':auc,
+                                                'ci':ci}
+        else:
+            gait_prob_sel = gait_prob[valid_ind]
+            gait_labels_sel = gait_labels_ind[valid_ind]
+            prefix1 = f''
+            if analysis_type == 'per_pixel':
+                prefix2=f'no_valid_chorea_per_pixel'
+            else:
+                prefix2=f'no_valid_chorea'
+                auc, ci = auc_and_ci(gait_labels_sel,gait_prob_sel) #change to logits
+                auc_dict[prefix2] = {'auc':auc,
+                                    'ci':ci}   
+    return auc_dict
+
+def update_scores_file(scores_file, new_config_name, new_scores):
+    try:
+        # Load existing scores from file
+        with open(scores_file, 'r') as f:
+            existing_scores = json.load(f)
+    except FileNotFoundError:
+        existing_scores = {}
+
+    # Update existing scores with new configuration
+    existing_scores[new_config_name] = new_scores
+
+    # Save updated scores back to the file
+    with open(scores_file, 'w') as f:
+        json.dump(existing_scores, f, indent=4)
+
 def add_noise_to_window(window, noise_std):
     noise = np.random.randn(*window.shape) * noise_std
     return window + noise   

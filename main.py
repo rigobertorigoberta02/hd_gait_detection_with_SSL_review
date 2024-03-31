@@ -67,6 +67,11 @@ parser.add_argument(
     default='segmentation',
     help='specify if segmentation or classification')
 
+parser.add_argument(
+    '--padding-type',
+    type=str,
+    default='triple_wind',
+    help='specify if without_edges or triple_wind')
 
 
 args = parser.parse_args()
@@ -83,7 +88,7 @@ VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/
 SRC_SAMPLE_RATE = int(100) #hz
 STD_THRESH = 0.05
 WINDOW_SIZE = int(30*10)
-WINDOW_OVERLAP = int(30*4)
+WINDOW_OVERLAP = int(30*5)
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
