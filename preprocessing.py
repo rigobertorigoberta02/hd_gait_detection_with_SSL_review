@@ -115,6 +115,13 @@ def lowpass_filter(data, low_cut, sampling_rate, order):
     filtered_data = filtfilt(b, a, data, axis=0)
     return filtered_data
 
+def highpass_filter(data, high_cut, sampling_rate, order):
+    nyq = 0.5 * sampling_rate
+    high = high_cut / nyq
+    b, a = signal.butter(order, high, btype='high')
+    filtered_data = filtfilt(b, a, data, axis=0)
+    return filtered_data
+
 def resample(data, labels, chorea, video_time, original_fs, target_fs):
     '''
     :param x: Numpy array. Data to resample.
@@ -125,11 +132,17 @@ def resample(data, labels, chorea, video_time, original_fs, target_fs):
     
     # calculate resampling factor
     resampling_factor = original_fs / target_fs
+    
     # calculate number of samples in the resampled data and labels
     num_samples = int(len(data) / resampling_factor)
+  
+
     # use scipy.signal.resample function to resample data, labels, and subjects
     resampled_data = signal.resample(data, num_samples)
-    resampled_video_time = np.linspace(video_time.min(), video_time.max(), num_samples)
+    if video_time is not None:
+        resampled_video_time = np.linspace(video_time.min(), video_time.max(), num_samples)
+    else:
+        resampled_video_time = None
     # Resample the labels to match the new length of the resampled data
     # resampled_labels = signal.resample(labels.astype(float), num_samples)
     # resampled_labels = np.round(resampled_labels).astype(int)
@@ -141,7 +154,8 @@ def resample(data, labels, chorea, video_time, original_fs, target_fs):
     return resampled_data, resampled_labels, resampled_chorea, resampled_video_time
 
 def labels_resample(labels,original_fs, target_fs):
-    
+    if labels is None:
+        return None
     resampling_ratio = original_fs / target_fs  # Replace with your desired resampling ratio
     num_samples = int(len(labels) / resampling_ratio)
 
@@ -200,18 +214,33 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
     for index,shift in enumerate(range(0,non_overlap,non_overlap//10)):
         shift = 0
         windowed_data = sliding_window_view(data, window_size, 0)[shift::non_overlap, :]
-        windowed_labels = sliding_window_view(labels, window_size, 0)[shift::non_overlap].squeeze()
-        if padding_type == 'without_edges':
-            # excluding the begining and end 
-            windowed_labels = windowed_labels.copy()
-            windowed_labels[:,:60] = -9
-            windowed_labels[:,-60:] = -9
-        windowed_chorea = sliding_window_view(chorea, window_size, 0)[shift::non_overlap].squeeze()
-        windowed_video_time = sliding_window_view(video_time, window_size, 0)[shift::non_overlap].squeeze()
         windowed_data_power_norm = sliding_window_view(data_power_norm, window_size, 0)[shift::non_overlap].squeeze()
+
+        if labels is not None:
+            windowed_labels = sliding_window_view(labels, window_size, 0)[shift::non_overlap].squeeze()
+            if padding_type == 'without_edges' and model_type == 'segmentation':
+                # excluding the begining and end 
+                windowed_labels = windowed_labels.copy()
+                windowed_labels[:,:60] = -9
+                windowed_labels[:,-60:] = -9
+            if chorea is None:
+                chorea = np.zeros_like(labels)
+            if video_time is None:
+                video_time = np.zeros_like(labels)
+            windowed_chorea = sliding_window_view(chorea, window_size, 0)[shift::non_overlap].squeeze()
+            windowed_video_time = sliding_window_view(video_time, window_size, 0)[shift::non_overlap].squeeze()
+            NumWin = windowed_labels.shape[0]
+            windowed_video_time = np.expand_dims(windowed_video_time[:,0], axis=-1)
+        else:
+            shape = [windowed_data.shape[0], windowed_data.shape[-1]]
+            windowed_labels = np.zeros(shape=shape)
+            windowed_chorea = np.zeros(shape=shape)
+            #windowed_video_time = np.zeros(shape[0])
+            windowed_video_time = np.arange(shape[0])
+            windowed_video_time = np.expand_dims(windowed_video_time, axis=-1)
+            NumWin = windowed_labels.shape[0]
         # Save the indices that indicating which windows belong to which subject
-        NumWin = windowed_labels.shape[0]
-        windowed_video_time = np.expand_dims(windowed_video_time[:,0], axis=-1)
+
         # Assign the mode label as the label for each window
         
         # windowed_labels_sum = np.sum(windowed_labels,axis=1)
@@ -220,6 +249,7 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
             windowed_labels_walking = np.mean(windowed_labels==1,axis=1)
             windowed_labels_not_walking = np.mean(windowed_labels==0,axis=1)
             windowed_labels_valid = np.logical_or(windowed_labels_walking > 0.6, windowed_labels_not_walking > 0.7)
+            #windowed_labels_valid = np.logical_or(windowed_labels_walking > 0.5, windowed_labels_not_walking > 0.5)
             windowed_labels = windowed_labels_mean
             windowed_labels = np.expand_dims(windowed_labels, axis=-1)
             chorea_valid_samples = np.sum(windowed_chorea>=0, axis=1)
@@ -228,9 +258,11 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
             windowed_chorea = np.array(windowed_chorea)
             windowed_chorea = np.expand_dims(windowed_chorea, axis=-1)
             valid_windows = np.logical_and(np.std(windowed_data_power_norm, axis=-1) > std_th, windowed_labels_valid)
+            #valid_windows = windowed_labels_valid
         
         if model_type == 'segmentation':
             valid_windows = np.std(windowed_data_power_norm, axis=-1) > std_th
+            #valid_windows = np.ones(windowed_data_power_norm.shape[0], dtype=bool)
         # Concatenate the data from different subjects
         if index==0:
             windowed_data_all = np.append(windowed_data_all, windowed_data[valid_windows], axis=0)
@@ -246,6 +278,7 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
                 windowed_chorea_all = np.append(windowed_chorea_all, windowed_chorea[relevant_indices], axis=0)
                 windowed_shift_all = np.append(windowed_shift_all, np.ones_like(windowed_chorea[relevant_indices]) * index, axis=0)
                 windowed_video_time_all = np.append(windowed_video_time_all, windowed_video_time[relevant_indices], axis=0)
+    # print(windowed_data_all.shape[0], data.shape[0], windowed_data_all.shape[0]*300/data.shape[0])
     return windowed_data_all, windowed_labels_all, windowed_chorea_all, windowed_video_time_all, windowed_shift_all, NumWin
 
 def tensor_data_loader(windowed_data_all, windowed_labels_all, device, batch_size):

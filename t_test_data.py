@@ -50,7 +50,6 @@ t_stat, p_value = t_test(HD_daily_age, HC_daily_age)
 
 print(f'T-statistic: {t_stat:.3f}')
 print(f'p-value: {p_value:.3f}')
-ipdb.set_trace()
 # Usage example
 women_group1 = 15
 men_group1 = 13
@@ -94,47 +93,47 @@ hd_classification_walking_mintues_median = [72.71999999999998, 106.92, 146.37599
 
 tms = np.array([43,	-1,	30,	60,	44,	63,	62,	12,	32,	31,	34,	55,	10,	10,	33,	41,	68,	45,	42,	52])
 chorea_arm_score = np.array([2,3,2,3,2,3,2,1,2,1,2,2,0,0,2,1,3,3,3,3])
-
+FA = np.array([20,24,24,21,20,24,9,24,25,20,25,24,25,22,21,21,24,19])
+TFC = np.array([10,10,13,10,9,13,5,13,9,12,13,8,14,13,13,8,9,9,12,11])
 
 valid_tms_indices = np.where(tms>0)[0].astype(int)
+valid_FA_indices = np.where(FA>0)[0].astype(int)
+vaild_TFC_indices = np.where(TFC>0)[0].astype(int)
 
+# ## correlation walking and tms
+# ## average - hd - pearson
+# print('tms_average_pearson')
+# r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'pearsonr_classification_correlation P:{p} R:{r}')
+# r, p = stats.pearsonr(np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'pearsonr_segmentation_correlation P:{p} R:{r}')
+# r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'pearsonr_diff_class_seg_correlation P:{p} R:{r}')
+# print('tms_average_spearman')
+# ## average - hd - spearman
+# r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'spearmanr_classification_correlation P:{p} R:{r}')
+# r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
+# r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
+# print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
 
-## correlation walking and tms
-## average - hd - pearson
-print('tms_average_pearson')
-r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'pearsonr_classification_correlation P:{p} R:{r}')
-r, p = stats.pearsonr(np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'pearsonr_segmentation_correlation P:{p} R:{r}')
-r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'pearsonr_diff_class_seg_correlation P:{p} R:{r}')
-print('tms_average_spearman')
-## average - hd - spearman
-r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'spearmanr_classification_correlation P:{p} R:{r}')
-r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
-r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues)[valid_tms_indices], tms[valid_tms_indices])
-print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
+# ## correlation walking and chorea
+# print('chorea_average_pearson')
+# r, p = stats.pearsonr(np.array(hd_classification_walking_mintues), chorea_arm_score)
+# print(f'pearsonr_classification_correlation P:{p} R:{r}')
+# r, p = stats.pearsonr(np.array(hd_segmentation_walking_mintues), chorea_arm_score)
+# print(f'pearsonr_segmentation_correlation P:{p} R:{r}')
+# r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)-np.array(hd_segmentation_walking_mintues), chorea_arm_score)
+# print(f'pearsonr_diff_class_seg_correlation P:{p} R:{r}')
 
-## correlation walking and chorea
-print('chorea_average_pearson')
-r, p = stats.pearsonr(np.array(hd_classification_walking_mintues), chorea_arm_score)
-print(f'pearsonr_classification_correlation P:{p} R:{r}')
-r, p = stats.pearsonr(np.array(hd_segmentation_walking_mintues), chorea_arm_score)
-print(f'pearsonr_segmentation_correlation P:{p} R:{r}')
-r, p = stats.pearsonr(np.array(hd_classification_walking_mintues)-np.array(hd_segmentation_walking_mintues), chorea_arm_score)
-print(f'pearsonr_diff_class_seg_correlation P:{p} R:{r}')
-
-print('chorea_average_spearman')
-r, p = stats.spearmanr(np.array(hd_classification_walking_mintues), chorea_arm_score)
-print(f'spearmanr_classification_correlation P:{p} R:{r}')
-r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues), chorea_arm_score)
-print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
-r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)-np.array(hd_segmentation_walking_mintues), chorea_arm_score)
-print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
-
-ipdb.set_trace()
+# print('chorea_average_spearman')
+# r, p = stats.spearmanr(np.array(hd_classification_walking_mintues), chorea_arm_score)
+# print(f'spearmanr_classification_correlation P:{p} R:{r}')
+# r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues), chorea_arm_score)
+# print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
+# r, p = stats.spearmanr(np.array(hd_classification_walking_mintues)-np.array(hd_segmentation_walking_mintues), chorea_arm_score)
+# print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
 print('median')
 ## median -hd -  pearson
 r, p = stats.pearsonr(np.array(hd_classification_walking_mintues_median)[valid_tms_indices], tms[valid_tms_indices])
@@ -144,13 +143,44 @@ print(f'pearsonr_segmentation_correlation P:{p} R:{r}')
 r, p = stats.pearsonr(np.array(hd_classification_walking_mintues_median)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues_median)[valid_tms_indices], tms[valid_tms_indices])
 print(f'pearsonr_diff_class_seg_correlation P:{p} R:{r}')
 
-## median - hd - spearman
+## median - hd - spearman - TMS
+print('TMS')
 r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[valid_tms_indices], tms[valid_tms_indices])
 print(f'spearmanr_classification_correlation P:{p} R:{r}')
 r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues_median)[valid_tms_indices], tms[valid_tms_indices])
 print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
 r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[valid_tms_indices]-np.array(hd_segmentation_walking_mintues_median)[valid_tms_indices], tms[valid_tms_indices])
 print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
+
+## median - hd - spearman - TFC
+print('TFC')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[vaild_TFC_indices], TFC[vaild_TFC_indices])
+print(f'spearmanr_classification_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues_median)[vaild_TFC_indices], TFC[vaild_TFC_indices])
+print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[vaild_TFC_indices]-np.array(hd_segmentation_walking_mintues_median)[vaild_TFC_indices], TFC[vaild_TFC_indices])
+print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
+
+## median - hd - spearman - FA
+print('FA')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[valid_FA_indices], FA[valid_FA_indices])
+print(f'spearmanr_classification_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues_median)[valid_FA_indices], FA[valid_FA_indices])
+print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)[valid_FA_indices]-np.array(hd_segmentation_walking_mintues_median)[valid_FA_indices], FA[valid_FA_indices])
+print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
+
+print('chorea_median_spearman')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median), chorea_arm_score)
+print(f'spearmanr_classification_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_segmentation_walking_mintues_median), chorea_arm_score)
+print(f'spearmanr_segmentation_correlation P:{p} R:{r}')
+r, p = stats.spearmanr(np.array(hd_classification_walking_mintues_median)-np.array(hd_segmentation_walking_mintues_median), chorea_arm_score)
+print(f'spearmanr_diff_class_seg_correlation P:{p} R:{r}')
+
+print('tms and chorea ')
+r, p = stats.spearmanr(tms, chorea_arm_score)
+print(f'spearmanr_tms_and_chorea_correlation P:{p} R:{r}')
 
 ipdb.set_trace()
 HD = np.array(hd_classification)

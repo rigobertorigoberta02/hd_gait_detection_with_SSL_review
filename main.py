@@ -81,14 +81,27 @@ args = parser.parse_args()
 
 VISUALIZE_ACC_VS_PRED_WIN = False
 RAW_DATA_AND_LABELS_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/synced_labeled_data_walking_non_walking'
-PROCESSED_DATA_DIR ='/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready'
+#RAW_DATA_AND_LABELS_DIR = '/mlwell-data2/dafna/daily_living_data_array/HC'
+#RAW_DATA_AND_LABELS_DIR = '/mlwell-data2/dafna/PD_data_and_labels/Data'
+#PD_RAW_LABELS_DIR = '/mlwell-data2/dafna/PD_data_and_labels/labels'
+#RAW_DATA_AND_LABELS_DIR = '/mlwell-data2/dafna/daily_living_data_array/PACE'
+PROCESSED_DATA_DIR ='/mlwell-data2/dafna/daily_living_data_array/data_ready'
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
 VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/multiclass_hd_only/multiclass_separated_labels'
-
-SRC_SAMPLE_RATE = int(100) #hz
-STD_THRESH = 0.05
+if args.cohort == 'pd_owly':
+    SRC_SAMPLE_RATE = int(25) #hz
+else:
+    SRC_SAMPLE_RATE = int(100) #hz
+STD_THRESH = 0.1
 WINDOW_SIZE = int(30*10)
-WINDOW_OVERLAP = int(30*5)
+if args.model_type=='classification':
+    WINDOW_OVERLAP=0
+elif args.padding_type=='triple_wind':
+    WINDOW_OVERLAP = int(30*5)
+elif args.padding_type=='without_edges':
+    WINDOW_OVERLAP = int(30*4)
+else:
+    WINDOW_OVERLAP=0
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -104,29 +117,64 @@ def main():
         StdIndex_all = inclusion_idx = original_data_len = np.empty((0,))
         win_video_time_all_sub = np.empty((0,1))
         NumWin = []
-
         for file in os.listdir(RAW_DATA_AND_LABELS_DIR):
-            if args.cohort == 'hc':
-                if 'TCCO' in file:
-                    data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
-                else:
+            try:
+                if args.cohort == 'hc':
+                    if 'TCCO' in file or 'CF' in file:
+                        data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
+                    else:
+                        continue
+                if args.cohort == 'hd':
+                    if 'TCCO' in file:
+                        continue 
+                    if 'WS' in file:
+                        continue   
+                    else:
+                        data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
+                if args.cohort == 'pd_owly':
+                    acc_data = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file),allow_pickle=True)
+                    label_data = np.load(os.path.join(PD_RAW_LABELS_DIR, file.replace('data', 'labels')),allow_pickle=True)
+                    data_file = {'arr_0': acc_data, 'arr_1': label_data}
+                    
+            except:
+                print(f"cant open the file {file}")
+                
+                continue
+            try:
+                acc_data = data_file['arr_0'].astype('float')
+            except:
+                try:
+                    # remove lines with empty string
+                    acc_data = data_file['arr_0']
+                    def is_numeric(s):
+                        try:
+                            float(s)
+                            return True
+                        except ValueError:
+                            return False
+                    # Convert non-numeric strings to np.nan
+                    numeric_mask = np.array([[is_numeric(cell) for cell in row] for row in acc_data])
+                    # numeric_mask = np.char.isnumeric(acc_data) | np.char.isdecimal(acc_data)
+                    acc_data[~numeric_mask] = np.nan
+                    acc_data = acc_data.astype('float')
+                    acc_data = acc_data[~np.isnan(acc_data).any(axis=1)]
+                    if len(acc_data) == 0:
+                        continue
+                except:  
+                    print(f"failed to open {file}")                  
                     continue
-            if args.cohort == 'hd':
-                if 'TCCO' in file:
-                    continue 
-                if 'WS' in file:
-                    continue   
-                else:
-                    data_file = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file))
-            acc_data = data_file['arr_0'].astype('float')
-            labels = data_file['arr_1']
-            chorea = data_file['arr_2']
-            video_time = data_file['arr_3']
+            if args.cohort == 'pd_owly':
+                labels = np.load(os.path.join(RAW_DATA_AND_LABELS_DIR, file),allow_pickle=True)
+            labels = data_file.get('arr_1', None)
+            chorea = data_file.get('arr_2', None)
+            if args.cohort == 'hc' and chorea is not None:
+               chorea[chorea==-1] = 0 
+            video_time = data_file.get('arr_3', None)
             subject_name = file.split('.')[0]
             # subject_id = np.tile(subject_name,len(labels)).reshape(-1, 1)
             # all_subjects = np.append(all_subjects,subject_id,axis=0)
 
-            
+           
             ## apply moving standard deviation 
             #data_std = preprocessing.movingstd(data=acc_data,window_size=3*SRC_SAMPLE_RATE)
             # data_std = preprocessing.movingstd(data=acc_data,window_size=WINDOW_SIZE)
@@ -138,16 +186,21 @@ def main():
             # video_time = video_time[StdIndex]
             
             ## apply bandpassfilter
-            acc_data = preprocessing.bandpass_filter(data=acc_data,low_cut=0.2,high_cut=15,sampling_rate=SRC_SAMPLE_RATE,order=4)
+            if args.cohort == 'pd_owly':
+                acc_data = preprocessing.highpass_filter(data=acc_data,high_cut=0.2,sampling_rate=SRC_SAMPLE_RATE,order=4)
+            else:
+                acc_data = preprocessing.bandpass_filter(data=acc_data,low_cut=0.2,high_cut=15,sampling_rate=SRC_SAMPLE_RATE,order=4)
             # acc_data = preprocessing.lowpass_filter(data=acc_data,low_cut=5 ,sampling_rate=SRC_SAMPLE_RATE,order=4)
             ## apply resampling 
+
             acc_data,labels, chorea, video_time = preprocessing.resample(data=acc_data,labels=labels,chorea=chorea, video_time=video_time ,original_fs=SRC_SAMPLE_RATE,target_fs=30)
 
-
+            
             ## deivide data and labels to fixed windows
             data, labels, chorea, video_time, shift, NumWinSub = preprocessing.data_windowing(data=acc_data, labels=labels, chorea=chorea, video_time=video_time, window_size = WINDOW_SIZE, window_overlap=WINDOW_OVERLAP,
                                                                                 std_th=STD_THRESH,model_type=args.model_type)
             # Concat the data and labels of the different subjects
+            
             win_data_all_sub = np.append(win_data_all_sub, data, axis=0)
             win_labels_all_sub = np.append(win_labels_all_sub, labels, axis=0)
             win_chorea_all_sub = np.append(win_chorea_all_sub, chorea, axis=0)
@@ -178,7 +231,6 @@ def main():
                 pickle.dump(NumWinSub, outputFile)
          
            '''
-        ipdb.set_trace()
         # Save the data, labels and groups
         res = {'win_data_all_sub': win_data_all_sub,
                'win_labels_all_sub': win_labels_all_sub,
@@ -322,7 +374,7 @@ def results_visualization(data, predictions,predictions_log,labels,subject_name=
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
             plt.title('Receiver Operating Characteristic (ROC)')
-            plt.legend(loc='lower right')
+            plt.legend(loc='lower left')
             plt.savefig(os.path.join(VIZUALIZE_DIR,f'roc_curve_{subject_name}.png'))
             plt.close('all')
 

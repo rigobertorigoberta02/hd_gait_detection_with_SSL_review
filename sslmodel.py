@@ -20,8 +20,6 @@ verbose = False
 wandb_flag = False
 torch_cache_path = Path(__file__).parent / 'torch_hub_cache'
 task = 'segmentation'  # 'classification' or 'segmentation'
-padding_type = 'without_edges' #'triple_wind'
-
 
 
 class RandomSwitchAxis:
@@ -135,7 +133,7 @@ class EarlyStopping:
             patience=15,
             verbose=False,
             delta=0,
-            path="checkpoint.pt",
+            path="/mlwell-data2/dafna/ssl_gait_detection/model_outputs/checkpoints/checkpoint.pt",#"checkpoint.pt",
             trace_func=print,
     ):
         """
@@ -202,7 +200,7 @@ class EarlyStopping:
         self.val_loss_min = val_loss
 
 
-def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmentation'):
+def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmentation',padding_type='no_padding'):
     """
     Load and return the Self Supervised Learning (SSL) model from pytorch hub.
 
@@ -210,9 +208,8 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmen
     :param bool pretrained: Initialise the model with UKB self-supervised pretrained weights.
     :return: pytorch SSL model
     :rtype: nn.Module
-    :model_type:'classifier', 'segmentor'
+    :model_type:'classifier', 'segmentation', 'vanila'
     """
-
     repo_name = 'ssl-wearables'
     repo = f'OxWearables/{repo_name}:{tag}'
 
@@ -234,12 +231,18 @@ def get_sslnet(tag='v1.0.0', pretrained=False, num_classes=2, model_type='segmen
         if verbose:
             print(f'Using local {repo_path}')
 
+    # if model_type == 'vanila':
+    #     repo = 'OxWearables/ssl-wearables'
+    #     sslnet: nn.Module = torch.hub.load(repo, 'harnet10', class_num=5, pretrained=True)
+    #     return sslnet
+    
     sslnet: nn.Module = torch.hub.load(repo_path, 'harnet10', trust_repo=True, source=source, class_num=num_classes,
                                        pretrained=pretrained, verbose=verbose)
-    if model_type=='classification':
+    if model_type in ['classification', 'vanila']:
         return sslnet
-    seg_model = segmentation_model.SegModel(sslnet, multi_windows=padding_type=='triple_wind')
-    return seg_model
+    if model_type=='segmentation':
+        seg_model = segmentation_model.SegModel(sslnet, multi_windows=padding_type=='triple_wind')
+        return seg_model
 
 
 def predict(model, data_loader, device):
@@ -290,7 +293,7 @@ def predict(model, data_loader, device):
 
 
 def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator=True, class_weights=None, weights_path='weights.pt',
-          num_epoch=30, learning_rate=0.0001, patience=25, model_type='segmentation'):
+          num_epoch=30, learning_rate=0.0001, patience=25, model_type='segmentation',gait_only=False):
     """
     Iterate over the training dataloader and train a pytorch model.
     After each epoch, validate model and early stop when validation loss function bottoms out.
@@ -318,12 +321,18 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
         else:
             # loss_fn_base = nn.CrossEntropyLoss()
             loss_fn_base = nn.MSELoss()
-        if is_init_estimator:
-            loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) + \
-                                    10*loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True,is_pred=True),get_valid_chorea(y)*get_chorea(y))
+        if gait_only:
+            if is_init_estimator:
+                loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) 
+            else:
+                loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True))
         else:
-            loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True)) + \
-                                    10*loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False, is_pred=True),y[:,-1:]*get_chorea(y[:,:-1],is_pred=True))
+            if is_init_estimator:
+                loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=True,is_pred=True),get_gait(y)) + \
+                                        10*loss_fn_base(get_valid_chorea(y)*get_chorea(x, is_logits=True,is_pred=True),get_valid_chorea(y)*get_chorea(y))
+            else:
+                loss_fn = lambda x, y : loss_fn_base(get_gait(x,is_logits=False,is_pred=True),get_gait(y[:,:-1],is_pred=True)) + \
+                                        10*loss_fn_base(y[:,-1:]*get_chorea(x, is_logits=False, is_pred=True),y[:,-1:]*get_chorea(y[:,:-1],is_pred=True))
     
 
 
@@ -334,7 +343,10 @@ def train(model, train_loader, val_loader, device, wandb_flag, is_init_estimator
             gait_valid = y[:, :, 2]
             chorea_valid = y[:, :, 3]
             gait_loss = _masked_cross_entropy(gait_labels, model_out[:,0:2,:], gait_valid)
-            chorea_loss = 0#_masked_cross_entropy(chorea_labels, model_out[:,2:7,:], chorea_valid)
+            if gait_only:
+                chorea_loss = 0
+            else:
+                chorea_loss=_masked_cross_entropy(chorea_labels, model_out[:,2:7,:], chorea_valid)
             return gait_loss + chorea_loss
         loss_fn = segmentaion_loss_fn
     # loss_gait = loss_fn(get_gait(logits),get_gait(true_y))
@@ -463,6 +475,7 @@ def get_gait(y, is_logits=False, is_pred=False):
     #return torch.tensor([torch.sum(y[0:5]),torch.sum(y[5:])])
 def get_chorea(y, is_logits=False,is_pred=True):
     try:
+        ipdb.set_trace()
         if is_logits:
             y = torch.sigmoid(y)
         # is_pred = y.shape[-1] == 8

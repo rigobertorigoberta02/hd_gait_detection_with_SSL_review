@@ -16,11 +16,24 @@ WS_ACC_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/acc_data/WS_
 LABEL_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/labeled data'
 OPAL_LABEL_DATA_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/labeled data/WS_label_files'
 TARGET_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/synced_labeled_data_walking_non_walking'
-
+DAILY_DATA_DIR = '/mlwell-data2/dafna/daily_living_for_ssl_gait_detection_paper/HC'
+DAILY_TARGET_DIR = '/mlwell-data2/dafna/daily_living_data_array/HC'
+PACE_DAILY_DATA_DIR ='/mlwell-data2/dafna/PACEHD_for_ssl_paper'
+PACE_DAILY_TARGET_DIR ='/mlwell-data2/dafna/daily_living_data_array/PACE'
 ACC_SAMPLE_RATE = 100 # Hz
 #LABEL_SAMPLE_RATE = 59.94005994005994 # for movies from TC center 60 FPS
 missing_labels = []
-def main(modes=['opal', 'video']):
+def main(modes=['opal', 'video','daily']):
+    if 'daily' in modes:
+        files = os.listdir(PACE_DAILY_DATA_DIR)
+        
+        for file in files:
+            file_name_split = file.split('_')
+            patient = file_name_split[0]
+            daily_acc_data = read_acc_data(patient=patient,files_dir=PACE_DAILY_DATA_DIR)
+            np.savez(os.path.join(PACE_DAILY_TARGET_DIR, patient + '.npz'), daily_acc_data)
+            # Remove the original CSV file
+            # os.remove(os.path.join(DAILY_DATA_DIR, file))
     if 'video' in modes:
         sync_dict = create_dictionary_from_excel(SYNC_FILE_NAME, SYNC_SHEET_NAME, KEY_COLUMN, VALUE_COLUMNS)
         for patient, val  in sync_dict.items():
@@ -79,7 +92,7 @@ def read_acc_data(patient, files_dir=ACC_DATA_DIR):
         if file_name.startswith(patient+'_'):
             matching_file_name = file_name
             break
-
+    print(f'processing {matching_file_name}')
     if matching_file_name is None:
         print(f"No file found matching the name '{patient}'")
         return None
@@ -146,12 +159,17 @@ def read_label_data(patient,
         for row in csv_reader:
             if len(row) == 0:
                 continue
+            if np.all([cell=='' for cell in row]):
+                continue
             if sections_counter<3:
                 if row[0]=='T':
                     sections_counter+=1
                     continue
             if sections_counter==2:
-                first_frame = int(row[2])
+                try:
+                    first_frame = int(row[2])
+                except:
+                    ipdb.set_trace()
                 last_frame = int(row[3])
                 activity_name = row[4]
                 chorea_labels_by_frames.append((first_frame, last_frame, activity_name))
@@ -166,7 +184,7 @@ def read_label_data(patient,
         print(f'patient {patient} has no labels')
         return None, None
 
-    activity__dict = {'walking': 1, 'turning': -9, 'turning ':-9,'stumbling':-9,'stepping to the side': 0, 'standing':0, 'sitting':0, 'siting down':0, 'standing clapping hands':0, 
+    activity__dict = {'walking': 1, 'moving (small steps)':1,'turning': -9, 'turning ':-9,'stumbling':-9,'stepping to the side': 0, 'standing':0, 'sitting':0, 'siting down':0, 'standing clapping hands':0, 
                       'sitting down':0, 'sitting clapping hands':0,'sit to stand':0,'sitting and writing ':0,
                        'sitting and driniking water':0,'sitting and writing':0,'standing up':0, 'standing and clapping hands':0, 
                        'standing and putting arms crossed on the chest':0, 'standing with arms crossed on the chest':0,
@@ -178,7 +196,16 @@ def read_label_data(patient,
                        'stambling':0, 'stepping over a step':0, 'stending up':0, 'stending':0, 
                        'stepping off of step': 0, 'standing off a step':0, 'turning around':-9, 
                        'putting the arms crossed on the chest\n':0, 'walking backwards': -9,
-                       'putting the arms crossed on the chest':0, 'arms crossed on the chest\n':0, 
+                       'putting the arms crossed on the chest':0, 'arms crossed on the chest\n':0, 'going down stairs':-9, 
+                       'going backwards with the chair':0, 'going forward with the chair':0, 'stepping on a step':0,
+                       'stepping down from step':0, 'bending down':0, 'bending':0, 'standing ':0,
+                       'moving the chair to the side':0, 'moving backward with the chair':0, 'moving forward with the chair':0,
+                       'stepping down from a step':0, 'climbing up stairs':-9, 'stepping backward':-9,
+                       'steps':-9, 'going down in the stairs':-9, 'step up':-9,'walking backward':-9,
+                       'stepping off a step':0,'standin up':0,'stepping up':0, 'stepping down':0, 
+                       'banding down':0, 'banding down and up':0, 'moving (walking with chair)':-9, 'stepping backwards':-9, 
+                       'going forward with chair':0, 'climibng up steps':-9, 'stairs up':-9,
+                       'sitiing':0,'stanading':0, 'steping down':0,
                        '-9': -9}
     try:
         last_labeled_frame = labels_by_frames[-1][1]
@@ -266,4 +293,4 @@ def sync_data(acc_data, label_data, chorea_labels, sync_sec, ACC_SAMPLE_RATE):
     
 
 if __name__ == "__main__":
-    main(modes = ['video'])
+    main(modes = ['daily'])
