@@ -36,11 +36,11 @@ ILLUSTRATE_RESULTS = False
 ## for in lab
 if data_type == 'in_lab':
     if COHORT == 'hd' and training_cohort != 'hd_and_pd_train' :
-        input_data_dir = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready' # or /mlwell-data2/dafna/in_lab_data_array
-        INP_PREFIX = 'segmentation_triple_wind_no_shift'
+        input_data_dir = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready' # /mlwell-data2/dafna/in_lab_data_array or /home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready
+        INP_PREFIX = 'segmentation_triple_wind_no_shift' #or 'check_labels'
         #segmentation_labels' or'segmentation_without_edges_overlap' or 'segmentation_triple_wind_no_shift' or 'classification_test' or 'daily_living_classification_full_files' or 'classification_hc'
         #as in the output file of preditions
-        OUT_PREFIX = 'segmentation_triple_wind_no_shift_final_8_4_24' #'classification_test_final' 
+        OUT_PREFIX = 'segmentation_triple_wind_no_shift_final_8_4_24' #'classification_test_final' or 'segmentation_triple_wind_no_shift_final_8_4_24'
     if COHORT == 'hc' and training_cohort != 'hd_and_pd_train' :
         input_data_dir = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready' # or /mlwell-data2/dafna/in_lab_data_array
         INP_PREFIX = 'classification_hc'
@@ -397,15 +397,13 @@ def main():
             input_file_name = f'windows_input_to_multiclass_model_{COHORT}_only_{INP_PREFIX}.npz'
             print("start loading input file")
             input_file = np.load(os.path.join(input_data_dir,input_file_name))
-            ipdb.set_trace()
             print("done loading input file")
-            win_acc_data = input_file['arr_0']
+            win_acc_data = input_file['win_data_all_sub']
             win_acc_data = np.transpose(win_acc_data,[0,2,1])
-            win_subjects = groups =input_file['arr_2']
+            win_subjects = groups =input_file['win_subjects']
             win_shift = input_file['win_shift_all_sub']
             print("done extract win acc")
             if model_type in ['classification', 'vanila']:
-                ipdb.set_trace()
                 win_labels = input_file['gait_label_chorea_comb']
                 one_hot_labels = np.zeros((len(win_labels), num_class+2), dtype=int) # adding two extra dummies for no chorea
                 one_hot_labels[np.arange(len(win_labels)), win_labels.squeeze().astype(int)] = 1
@@ -567,9 +565,52 @@ def main():
         print("start loading input file")
         input_file = np.load(os.path.join(input_data_dir,input_file_name))
         #input_file = np.load(f'/home/dafnas1/my_repo/hd_gait_detection_with_SSL/data_ready/windows_input_to_multiclass_model_hd_only_segmentation_labels.npz')
-        win_acc_data = input_file['arr_0']
+        win_acc_data = input_file['win_data_all_sub']
         win_acc_data = np.transpose(win_acc_data,[0,2,1])
         win_video_time = input_file['win_video_time_all_sub']
+        if model_type == 'classification':
+            counter = 0
+            for i in range(len(gait_predictions_all_folds[0])):
+                if gait_predictions_all_folds[0][i]==0 and gait_labels_all_folds[0][i][1]==1:
+                    print(counter, win_subjects[0][i], win_video_time[i])
+                    counter +=1
+            gait_labels = gait_labels_all_folds[0]  
+            gait_predictions = gait_predictions_all_folds[0]  
+
+            # Use np.where to find where the label is gait and the prediction is non-gait
+            mismatch_indices = np.where((gait_labels[:, 1] == 1) & (gait_predictions == 0))[0]
+            false_class_video_time = win_video_time[mismatch_indices]
+            false_class_subject = win_subjects[0][mismatch_indices]
+            
+            np.savez('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/false_gait_classification_video_start_time_andsubjects.npz',
+            false_class_video_time=false_class_video_time,false_class_subject=false_class_subject)
+        #### compare classification and seg windows DEBUGG#####
+        class_false_gait = dict(np.load('/home/dafnas1/my_repo/hd_gait_detection_with_SSL/false_gait_classification_video_start_time_andsubjects.npz'))
+        class_false_gait_video = class_false_gait['false_class_video_time'].flatten()
+        class_false_gait_subject = class_false_gait['false_class_subject'].flatten()
+        for video, subject in zip(class_false_gait_video, class_false_gait_subject):
+            sub_ind = np.where(win_subjects[0]==subject)[0]
+            for ind in sub_ind:
+                if win_video_time[ind] >= video and win_video_time[ind]<=video+10 and ind%2==1:
+                    try:
+                        output_ind = (ind-1)//2
+                        pred = gait_predictions_all_folds[0][output_ind]
+                        label = gait_labels_all_folds[0][output_ind]
+                        valid = valid_gait_all_folds[0][output_ind]
+                        # get seg values
+                        valid_gait_label = (label==1) * valid
+                        valid_not_gait_label = (label==0) * valid
+                        gait_windows = np.mean(valid_gait_label, axis=-1) > 0.6
+                        not_gait_windows = np.mean(valid_not_gait_label, axis=-1) > 0.7
+                        valid_windows = gait_windows or not_gait_windows
+                        if not valid_windows:
+                            continue
+                        win_pred = np.mean(pred) > 0.5
+                        print(f"subject:{subject}, index:{ind}, start_video:{video}, seg_start:{win_video_time[ind]}, is_label_gait:{gait_windows}, is_pred_gait:{win_pred}, agree:{gait_windows==win_pred}")
+                    except:
+                        ipdb.set_trace()
+
+        ############# end debug ###############################
         ipdb.set_trace()
         optimal_th_sub_dict ={}
         ## get roc per patient

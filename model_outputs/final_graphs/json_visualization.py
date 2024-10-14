@@ -41,8 +41,13 @@ def main():
                             'segmentation_triple_wind_no_shift_final_8_4_24_gait_only_hd',
                             'segmentation_without_edges_overlap_final_1_4_24_gait_only_hd',
                             'segmentation_without_edges_overlap_final_1_4_24_hd',]
-    groups_labels = ['Chorea lvl. 0', 'Chorea lvl.1', 'Chorea lvl.2', 'Chorea lvl. 3', 'Chorea lvl. 4']
-    res = {name: np.zeros((NUM_CHOREA_CLASS, 2)) for name in methods_names}
+    gait_only_vs_multi_methods_hc = []
+    groups_labels = ['HC','Chorea lvl. 0', 'Chorea lvl.1', 'Chorea lvl.2', 'Chorea lvl. 3', 'Chorea lvl. 4']
+
+    res = {name: np.zeros((NUM_CHOREA_CLASS+1, 2)) for name in methods_names}
+    for method, name in zip(hc_methods, methods_names):
+        res[name][0,:] = _extract_auc_ci(data[method][_get_key(data[method], 0)])
+
     for method, name in zip(gait_only_vs_multi_methods_hd, methods_names):
         for chorea_lvl in range(NUM_CHOREA_CLASS):
             res[name][chorea_lvl,:] = _extract_auc_ci(data[method][_get_key(data[method], chorea_lvl)])

@@ -183,7 +183,7 @@ def main():
             
             ## deivide data and labels to fixed windows
             data, labels, chorea, video_time, shift, NumWinSub = preprocessing.data_windowing(data=acc_data, labels=labels, chorea=chorea, video_time=video_time, window_size = WINDOW_SIZE, window_overlap=WINDOW_OVERLAP,
-                                                                                std_th=STD_THRESH,model_type=args.model_type)
+                                                                                std_th=STD_THRESH,model_type=args.model_type,subject=subject_name)
             # Concat the data and labels of the different subjects
             
             win_data_all_sub = np.append(win_data_all_sub, data, axis=0)

@@ -171,7 +171,7 @@ def labels_resample(labels,original_fs, target_fs):
 
     return np.array([labels[int(index)] for index in resample_index])
 
-def data_windowing(data, labels, chorea, video_time, window_size, window_overlap, std_th,model_type='segmentation', padding_type='triple_wind'):
+def data_windowing(data, labels, chorea, video_time, window_size, window_overlap, std_th,model_type='segmentation', padding_type='triple_wind', subject=None):
     """
     Dividing the data into fixed-time windows
 
@@ -245,12 +245,13 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
         
         # windowed_labels_sum = np.sum(windowed_labels,axis=1)
         if model_type == 'classification':
+            windowed_labels_orig = windowed_labels*1.0
             windowed_labels_mean = np.mean(windowed_labels,axis=1)
             windowed_labels_walking = np.mean(windowed_labels==1,axis=1)
             windowed_labels_not_walking = np.mean(windowed_labels==0,axis=1)
             windowed_labels_valid = np.logical_or(windowed_labels_walking > 0.6, windowed_labels_not_walking > 0.7)
             #windowed_labels_valid = np.logical_or(windowed_labels_walking > 0.5, windowed_labels_not_walking > 0.5)
-            windowed_labels = windowed_labels_mean
+            windowed_labels = windowed_labels_walking * (windowed_labels_walking > 0.6) + (1-windowed_labels_not_walking) * (windowed_labels_not_walking > 0.7)
             windowed_labels = np.expand_dims(windowed_labels, axis=-1)
             chorea_valid_samples = np.sum(windowed_chorea>=0, axis=1)
             windowed_chorea_sum = np.sum(windowed_chorea*(windowed_chorea>=0), axis=1)
@@ -271,6 +272,7 @@ def data_windowing(data, labels, chorea, video_time, window_size, window_overlap
             windowed_shift_all = np.append(windowed_shift_all, np.ones_like(windowed_chorea[valid_windows]) * index, axis=0)
             windowed_video_time_all = np.append(windowed_video_time_all, windowed_video_time[valid_windows], axis=0)
         elif model_type =='calssification':
+            # to increase windows with high chorea labels
             relevant_indices = np.where(np.logical_and(np.squeeze(windowed_chorea>=2), np.squeeze(valid_windows)))[0]
             if len(relevant_indices) > 0:
                 windowed_data_all = np.append(windowed_data_all, windowed_data[relevant_indices], axis=0)
