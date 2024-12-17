@@ -30,3 +30,9 @@ This is the main script for training the SSL model. It includes:
 You can run the training process using:
 ```bash
 python train_hd_ssl.py --initialize-model --training-mode --run-suffix "experiment_name"
+```
+Data is available in:
+https://zenodo.org/records/14384260
+
+Kindly cite the following paper when using the data or the code:
+D. Schwartz, L. Quinn, N. E. Fritz, L. M. Muratori, J. M. Hausdorff, and R. G. Bachrach, Detecting daily living gait amid Huntington’s disease chorea using a foundation deep learning model, 2024. arXiv:2412.11286 [cs.CV]. url: https://arxiv.org/abs/2412.11286.
