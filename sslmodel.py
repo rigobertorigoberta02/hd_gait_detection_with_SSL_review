@@ -5,6 +5,10 @@ import torch.nn as nn
 import numpy as np
 import random
 from pathlib import Path
+import os
+
+# Base directory for data and model outputs
+BASE_DIR = os.getenv('OUTPUT_DIR', '/content/drive/MyDrive/hd_data/model_outputs')
 from transforms3d.axangles import axangle2mat
 from tqdm import tqdm
 from torchvision import transforms
@@ -133,7 +137,7 @@ class EarlyStopping:
             patience=15,
             verbose=False,
             delta=0,
-            path="/mlwell-data2/dafna/ssl_gait_detection/model_outputs/checkpoints/checkpoint.pt",#"checkpoint.pt",
+            path=os.path.join(os.getenv('OUTPUT_DIR', BASE_DIR + '/model_outputs'), 'checkpoints', 'checkpoint.pt'),
             trace_func=print,
     ):
         """
