@@ -80,7 +80,7 @@ args = parser.parse_args()
 
 
 VISUALIZE_ACC_VS_PRED_WIN = False
-RAW_DATA_AND_LABELS_DIR = '/home/dafnas1/datasets/hd_dataset/lab_geneactive/synced_labeled_data_walking_non_walking'
+RAW_DATA_AND_LABELS_DIR = '/mlwell-data2/dafna/daily_living_data_array/PACE'
 PROCESSED_DATA_DIR ='/mlwell-data2/dafna/daily_living_data_array/data_ready'
 OUTPUT_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs'
 VIZUALIZE_DIR = '/home/dafnas1/my_repo/hd_gait_detection_with_SSL/model_outputs/results_visualization/multiclass_hd_only/multiclass_separated_labels'
