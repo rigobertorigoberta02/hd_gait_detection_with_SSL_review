@@ -1,43 +1,47 @@
-# read_data.py — versión ultraligera para CSV x,y,z,label
 import os
-import csv
 import numpy as np
+import csv
 
-CSV_DIR  = '/mlwell-data2/dafna/PACEHD_for_ssl_paper'          # ← tus 1.csv, 2.csv…
-NPZ_DIR  = '/mlwell-data2/dafna/daily_living_data_array/PACE'  # ← destino .npz
-ACC_FS   = 100  # Hz (solo informativo; los .csv ya vienen así)
+# === RUTAS BÁSICAS (ajusta a tu gusto) =========================
+PACE_DAILY_DATA_DIR   = '/mlwell-data2/dafna/PACEHD_for_ssl_paper'     # donde viven los .csv
+PACE_DAILY_TARGET_DIR = '/mlwell-data2/dafna/daily_living_data_array/PACE'  # donde guardaremos .npz
+ACC_SAMPLE_RATE = 100  # no lo usamos aquí, pero lo dejo por coherencia
 
-os.makedirs(NPZ_DIR, exist_ok=True)
-
-def read_acc_data(csv_path):
-    acc_rows, label_rows = [], []
-    with open(csv_path, 'r') as fh:
+# ----------------------------------------------------------------
+def read_acc_csv(file_path):
+    """
+    Lee un CSV con cabecera x,y,z,label y devuelve:
+        acc_data  -> np.array shape (N, 3)   ❶
+        label_arr -> np.array shape (N,)     ❷
+    """
+    acc_rows, lab_rows = [], []
+    with open(file_path, 'r') as fh:
         reader = csv.reader((ln.replace('\0', '') for ln in fh))
-        next(reader, None)                 # salta cabecera
+        next(reader, None)                      # salta cabecera
         for row in reader:
-            if len(row) < 4:
+            if len(row) < 4:                     # fila corta = descártala
                 continue
             acc_rows.append([float(row[0]), float(row[1]), float(row[2])])
-            label_rows.append(int(float(row[3])))
-    return (np.asarray(acc_rows,  dtype='float32'),
-            np.asarray(label_rows, dtype='int8'))
+            lab_rows.append(int(float(row[3])))  # -1/0/1
+    return np.asarray(acc_rows, dtype='float32'), np.asarray(lab_rows, dtype='int8')
 
-def main():
-    for fname in sorted(os.listdir(CSV_DIR)):
-        if not fname.endswith('.csv'):
-            continue
-        pid     = os.path.splitext(fname)[0]      # '1', '2', ...
-        csvfile = os.path.join(CSV_DIR, fname)
 
-        acc, labels = read_acc_data(csvfile)
-        if acc.shape[0] != labels.shape[0]:
-            print(f'⚠ {pid}: longitudes distintas, lo salto')
+def main_daily():
+    os.makedirs(PACE_DAILY_TARGET_DIR, exist_ok=True)
+    for file in sorted(os.listdir(PACE_DAILY_DATA_DIR)):
+        if not file.endswith('.csv'):
             continue
 
-        out_npz = os.path.join(NPZ_DIR, f'{pid}.npz')
-        np.savez(out_npz, acc, labels)   # arr_0 = acc, arr_1 = labels  ✅
+        patient_id = os.path.splitext(file)[0]   # '1', '2', ...
+        csv_path   = os.path.join(PACE_DAILY_DATA_DIR, file)
 
-        print(f'✓ {pid}.npz listo  ({acc.shape[0]} muestras)')
+        acc_data, label_arr = read_acc_csv(csv_path)
 
-if __name__ == '__main__':
-    main()
+        # ⚠ El orden es importante: 1º acc, 2º labels = arr_0, arr_1
+        npz_out = os.path.join(PACE_DAILY_TARGET_DIR, f'{patient_id}.npz')
+        np.savez(npz_out, acc_data, label_arr)
+
+        print(f'✓ {patient_id}.npz  ({acc_data.shape[0]} muestras)')
+
+if __name__ == "__main__":
+    main_daily()
